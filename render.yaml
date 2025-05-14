@@ -17,4 +17,8 @@ services:
         sync: false
       - key: PORT
         value: 10000
-    healthCheckPath: /health 
+    healthCheckPath: /health
+    # Add explicit port configuration
+    ports:
+      - port: 10000
+        protocol: http 

@@ -6,6 +6,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import os
 import threading
 import logging
+import socket
 
 # Set up logging
 logging.basicConfig(
@@ -27,14 +28,27 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             self.end_headers()
             logger.info(f"Invalid path requested: {self.path}")
 
+def is_port_in_use(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('localhost', port)) == 0
+
 def run_server():
     # Get port from environment variable, default to 10000 if not set
     port = int(os.environ.get('PORT', 10000))
     logger.info(f"Attempting to start server on port {port}")
     
+    # Check if port is already in use
+    if is_port_in_use(port):
+        logger.error(f"Port {port} is already in use!")
+        raise RuntimeError(f"Port {port} is already in use")
+    
     try:
+        # Create server with explicit host and port
         server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-        logger.info(f"Server started successfully on port {port}")
+        logger.info(f"Server created successfully, binding to 0.0.0.0:{port}")
+        
+        # Start the server
+        logger.info("Starting server...")
         server.serve_forever()
     except Exception as e:
         logger.error(f"Failed to start server: {e}")
@@ -42,6 +56,8 @@ def run_server():
 
 if __name__ == "__main__":
     logger.info("Starting application...")
+    logger.info(f"Current working directory: {os.getcwd()}")
+    logger.info(f"Environment variables: PORT={os.environ.get('PORT', 'not set')}")
     
     # Start the HTTP server in a separate thread
     server_thread = threading.Thread(target=run_server)
