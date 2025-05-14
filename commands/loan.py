@@ -156,12 +156,20 @@ class LoanCommand(commands.Cog):
                 ephemeral=True
             )
         
-        if days < 1 or days > max_repayment_days:
-            return await interaction.response.send_message(
-                f"Loan duration must be at least 1 day and cannot exceed {max_repayment_days} days. "
-                f"The maximum repayment period is set by the server administrator.",
-                ephemeral=True
-            )
+        if days < 1 or (days > max_repayment_days and max_repayment_days < 9999):
+            # Customize message based on whether max days is "unlimited"
+            if max_repayment_days >= 9999:
+                return await interaction.response.send_message(
+                    f"Loan duration must be at least 1 day. "
+                    f"Your server has unlimited maximum repayment days.",
+                    ephemeral=True
+                )
+            else:
+                return await interaction.response.send_message(
+                    f"Loan duration must be at least 1 day and cannot exceed {max_repayment_days} days. "
+                    f"The maximum repayment period is set by the server administrator.",
+                    ephemeral=True
+                )
         
         # Defer the reply first to prevent interaction timeout
         await interaction.response.defer()

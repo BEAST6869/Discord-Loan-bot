@@ -109,7 +109,7 @@ class SetupCommand(commands.Cog):
             max_days = settings.get("max_repayment_days", 7)
             embed.add_field(
                 name="📅 Maximum Repayment Period",
-                value=f"{max_days} days",
+                value=f"{max_days if max_days < 9999 else 'Unlimited'} days",
                 inline=False
             )
             
@@ -202,15 +202,20 @@ class SetupCommand(commands.Cog):
             
     @app_commands.command(name="set_max_days", description="Set the maximum repayment period for loans (Admin only)")
     @app_commands.describe(
-        days="The maximum number of days allowed for loan repayment (minimum 1 day)"
+        days="The maximum number of days allowed for loan repayment (minimum 1 day)",
+        unlimited="Set to True to allow unlimited repayment time (ignores days parameter)"
     )
-    async def set_max_days(self, interaction: discord.Interaction, days: int):
+    async def set_max_days(self, interaction: discord.Interaction, days: int, unlimited: bool = False):
         # Check if the user has admin permissions
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message(
                 "You need administrator permissions to use this command.",
                 ephemeral=True
             )
+        
+        # Handle unlimited days option
+        if unlimited:
+            days = 9999  # Using 9999 days (about 27 years) as effectively unlimited
         
         # Validate the days - only enforce a minimum
         if days < 1:
@@ -228,19 +233,27 @@ class SetupCommand(commands.Cog):
             # Respond with confirmation
             embed = discord.Embed(
                 title="✅ Maximum Repayment Period Set",
-                description=f"The maximum repayment period has been set to {days} days.",
+                description=f"The maximum repayment period has been set to {days if days < 9999 else 'unlimited'} days.",
                 color=0x00FF00
             )
             
             embed.add_field(
                 name="How it works",
-                value=f"Members can now request loans with repayment periods up to {days} days.",
+                value=f"Members can now request loans with repayment periods up to {days if days < 9999 else 'unlimited'} days.",
                 inline=False
             )
             
             embed.add_field(
                 name="To change",
-                value="Run this command again with a different number of days.",
+                value="Run this command again with a different number of days or use `/set_max_days unlimited:True` for unlimited time.",
+                inline=False
+            )
+            
+            # Add current settings info
+            max_loan = server_settings.get_max_loan_amount(guild_id)
+            embed.add_field(
+                name="Current Settings",
+                value=f"Max Loan Amount: {max_loan:,} {config.UNBELIEVABOAT['CURRENCY_NAME']}\nMax Repayment Period: {days if days < 9999 else 'Unlimited'} days", 
                 inline=False
             )
             
