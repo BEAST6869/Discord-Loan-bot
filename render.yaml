@@ -1,5 +1,5 @@
 services:
-  - type: web
+  - type: worker
     name: discord-loan-bot
     env: python
     runtime: python3
