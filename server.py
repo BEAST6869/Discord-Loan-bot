@@ -32,4 +32,4 @@ if __name__ == "__main__":
     # Import and run the bot
     import bot
     import asyncio
-    asyncio.run(bot.main()) 
+    asyncio.run(bot.main())
