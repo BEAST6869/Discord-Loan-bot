@@ -505,8 +505,12 @@ class LoanCommand(commands.Cog):
                         "transaction_processed": True,
                         "balance": result["cash"]
                     }
+                else:
+                    print(f"UnbelievaBoat API returned None for add_currency call. Guild ID: {guild_id}, User ID: {user_id}, Amount: {loan_request['amount']}")
             except Exception as error:
                 print(f"UnbelievaBoat API error during loan approval: {str(error)}")
+                import traceback
+                traceback.print_exc()
         
         # Try to notify the user
         try:
@@ -804,8 +808,12 @@ class LoanCommand(commands.Cog):
                             "transaction_processed": True,
                             "balance": result["cash"]
                         }
+                    else:
+                        print(f"UnbelievaBoat API returned None for add_currency call. Guild ID: {guild_id}, User ID: {user_id}, Amount: {loan_request['amount']}")
                 except Exception as error:
                     print(f"UnbelievaBoat API error during loan approval: {str(error)}")
+                    import traceback
+                    traceback.print_exc()
             
             # Try to notify the user
             try:

@@ -12,8 +12,9 @@ class UnbelievaBoatAPI:
         self.api_key = api_key
         self.base_url = 'https://unbelievaboat.com/api/v1'
         self.headers = {
-            'Authorization': api_key,  # JWT tokens are sent as-is, not with Bearer prefix
-            'Content-Type': 'application/json'
+            'Authorization': f'Bearer {api_key}',  # Add Bearer prefix
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
         }
         self.session = None
         logger.info(f"UnbelievaBoat API initialized with token starting with: {api_key[:10]}...")
@@ -84,47 +85,59 @@ class UnbelievaBoatAPI:
             logger.info(f"Adding {amount} to user {user_id} in guild {guild_id}")
             session = await self._ensure_session()
             
-            url = f"{self.base_url}/guilds/{guild_id}/users/{user_id}"
+            # Updated endpoint format
+            url = f"{self.base_url}/guilds/{guild_id}/users/{user_id}/balance"
             logger.info(f"Making PATCH request to: {url} with data: cash={amount}, reason={reason}")
+            
+            # Log full request details for debugging
+            logger.info(f"Request headers: {json.dumps(self.headers)}")
+            request_data = {
+                'cash': amount,
+                'reason': reason
+            }
+            logger.info(f"Request data: {json.dumps(request_data)}")
             
             async with session.patch(
                 url,
                 headers=self.headers,
-                json={
-                    'cash': amount,
-                    'reason': reason
-                }
+                json=request_data
             ) as response:
                 status = response.status
                 
-                # Log response status
+                # Log response status and full response for debugging
                 logger.info(f"Add currency request status: {status}")
+                response_text = await response.text()
+                logger.info(f"Response body: {response_text}")
                 
                 # If 401 or 403, likely API token issue
                 if status == 401 or status == 403:
                     logger.error("API authentication error. Check your API token.")
-                    text = await response.text()
-                    logger.error(f"Error response: {text}")
+                    logger.error(f"Error response: {response_text}")
                     return None
                 
                 # If 404, likely guild or user not found
                 if status == 404:
                     logger.error(f"Guild {guild_id} or user {user_id} not found")
-                    text = await response.text()
-                    logger.error(f"Error response: {text}")
+                    logger.error(f"Error response: {response_text}")
                     return None
                 
                 # Check for other errors
                 if status >= 400:
-                    text = await response.text()
-                    logger.error(f"API error {status}: {text}")
+                    logger.error(f"API error {status}: {response_text}")
+                    return None
+                
+                try:
+                    response_data = json.loads(response_text)
+                    logger.info(f"Currency added successfully. New balance: {response_data.get('cash', 'unknown')}")
+                    return response_data
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse response as JSON: {response_text}")
                     return None
                     
-                response_data = await response.json()
-                logger.info(f"Currency added successfully. New balance: {response_data.get('cash', 'unknown')}")
-                return response_data
         except Exception as error:
             logger.error(f"Error adding currency: {str(error)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
 
     async def remove_currency(self, guild_id, user_id, amount, reason=''):
