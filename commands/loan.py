@@ -17,29 +17,57 @@ import server_settings
 # Initialize UnbelievaBoat integration
 unbelievaboat = None
 
+# Logger for this module
+logger = logging.getLogger("loan")
+
 # Try to get port configuration from environment
 unbelievaboat_port = None
 try:
     port_env = os.environ.get('UNBELIEVABOAT_PORT')
     if port_env:
         unbelievaboat_port = int(port_env)
-        logging.info(f"Using UnbelievaBoat port from environment: {unbelievaboat_port}")
+        logger.info(f"Using UnbelievaBoat port from environment: {unbelievaboat_port}")
 except (ValueError, TypeError) as e:
-    logging.warning(f"Invalid UNBELIEVABOAT_PORT environment variable: {e}")
+    logger.warning(f"Invalid UNBELIEVABOAT_PORT environment variable: {e}")
 
 if config.UNBELIEVABOAT["ENABLED"]:
-    from unbelievaboat_integration import UnbelievaBoatAPI
-    unbelievaboat = UnbelievaBoatAPI(
-        api_key=config.UNBELIEVABOAT["API_KEY"],
-        port=unbelievaboat_port,
-        timeout=45  # Increased timeout for Render
-    )
-    logging.info("UnbelievaBoat API integration enabled")
+    try:
+        from unbelievaboat_integration import UnbelievaBoatAPI
+        api_key = config.UNBELIEVABOAT["API_KEY"]
+        
+        # Check if API key is valid format
+        if not api_key or len(api_key.strip()) < 10:
+            logger.error(f"UnbelievaBoat API key is invalid or too short: {api_key[:5]}... Length: {len(api_key) if api_key else 0}")
+            logger.error("Please set a valid API key in the config or environment variables.")
+        else:
+            logger.info(f"Initializing UnbelievaBoat API with token starting with: {api_key[:10]}...")
+            
+            unbelievaboat = UnbelievaBoatAPI(
+                api_key=api_key,
+                port=unbelievaboat_port,
+                timeout=45  # Increased timeout for Render
+            )
+            logger.info(f"UnbelievaBoat API integration enabled with base URL: {unbelievaboat.base_url}")
+            
+            # Add diagnostic info
+            if unbelievaboat_port:
+                logger.info(f"Using custom port: {unbelievaboat_port}")
+    except ImportError as e:
+        logger.error(f"Failed to import UnbelievaBoat API integration: {e}")
+    except Exception as e:
+        logger.error(f"Error initializing UnbelievaBoat API: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
 else:
-    logging.info("UnbelievaBoat API integration disabled")
+    logger.info("UnbelievaBoat API integration disabled in config")
 
 # Always import manual integration as fallback
-import manual_unbelievaboat as manual_integration
+try:
+    import manual_unbelievaboat as manual_integration
+    logger.info("Manual integration module loaded as fallback")
+except ImportError as e:
+    logger.error(f"Failed to import manual integration module: {e}")
+    manual_integration = None
 
 
 def generate_loan_id(existing_loans):
@@ -537,15 +565,55 @@ class LoanCommand(commands.Cog):
                     # Update loan with transaction info
                     loan["unbelievaboat"] = {
                         "transaction_processed": True,
-                        "balance": result["cash"]
+                        "balance": result["cash"],
+                        "transaction_time": datetime.datetime.now().isoformat()
                     }
                     logger.info(f"Successfully added {loan_request['amount']} currency to user {user_id_str}")
+                    
+                    # Notify admin of success
+                    await interaction.followup.send(
+                        f"✅ API Success: Added {loan_request['amount']} {config.UNBELIEVABOAT['CURRENCY_NAME']} to {user_name}'s account.",
+                        ephemeral=True
+                    )
                 else:
                     logger.error(f"UnbelievaBoat API returned None for add_currency call. Guild ID: {guild_id_str}, User ID: {user_id_str}, Amount: {loan_request['amount']}")
+                    
+                    # Fall back to manual mode if API fails
+                    loan["unbelievaboat"] = {
+                        "transaction_processed": False,
+                        "error": "API returned None"
+                    }
+                    
+                    # Notify admin of failure and provide manual instructions
+                    await interaction.followup.send(
+                        f"⚠️ API Error: Failed to add currency through API. Please use manual command: `{config.UNBELIEVABOAT['COMMANDS']['PAY']} {user_id_str} {loan_request['amount']} Loan #{loan_id}`",
+                        ephemeral=True
+                    )
+                    
+                    # Enable manual mode for this transaction
+                    manual_needed = True
             except Exception as error:
                 logger.error(f"UnbelievaBoat API error during loan approval: {str(error)}")
                 import traceback
                 logger.error(traceback.format_exc())
+                
+                # Fall back to manual mode on exception
+                loan["unbelievaboat"] = {
+                    "transaction_processed": False,
+                    "error": str(error)
+                }
+                
+                # Notify admin of failure
+                await interaction.followup.send(
+                    f"⚠️ API Error: {str(error)}. Please add currency manually.",
+                    ephemeral=True
+                )
+                
+                # Enable manual mode for this transaction
+                manual_needed = True
+        else:
+            # API not enabled, use manual mode
+            manual_needed = True
         
         # Try to notify the user
         try:
@@ -583,7 +651,7 @@ class LoanCommand(commands.Cog):
                 )
             
             # If manual mode is needed, provide instructions
-            if config.UNBELIEVABOAT["ENABLED"] and not loan.get("unbelievaboat") and manual_integration:
+            if manual_needed and manual_integration:
                 instructions_embed = manual_integration.format_receive_loan_instructions(
                     loan,
                     user_obj,
@@ -847,15 +915,55 @@ class LoanCommand(commands.Cog):
                         # Update loan with transaction info
                         loan["unbelievaboat"] = {
                             "transaction_processed": True,
-                            "balance": result["cash"]
+                            "balance": result["cash"],
+                            "transaction_time": datetime.datetime.now().isoformat()
                         }
                         logger.info(f"Successfully added {loan_request['amount']} currency to user {user_id_str}")
+                        
+                        # Notify admin of success
+                        await interaction.followup.send(
+                            f"✅ API Success: Added {loan_request['amount']} {config.UNBELIEVABOAT['CURRENCY_NAME']} to {user_name}'s account.",
+                            ephemeral=True
+                        )
                     else:
                         logger.error(f"UnbelievaBoat API returned None for add_currency call. Guild ID: {guild_id_str}, User ID: {user_id_str}, Amount: {loan_request['amount']}")
+                        
+                        # Fall back to manual mode if API fails
+                        loan["unbelievaboat"] = {
+                            "transaction_processed": False,
+                            "error": "API returned None"
+                        }
+                        
+                        # Notify admin of failure and provide manual instructions
+                        await interaction.followup.send(
+                            f"⚠️ API Error: Failed to add currency through API. Please use manual command: `{config.UNBELIEVABOAT['COMMANDS']['PAY']} {user_id_str} {loan_request['amount']} Loan #{loan_id}`",
+                            ephemeral=True
+                        )
+                        
+                        # Enable manual mode for this transaction
+                        manual_needed = True
                 except Exception as error:
                     logger.error(f"UnbelievaBoat API error during loan approval: {str(error)}")
                     import traceback
                     logger.error(traceback.format_exc())
+                    
+                    # Fall back to manual mode on exception
+                    loan["unbelievaboat"] = {
+                        "transaction_processed": False,
+                        "error": str(error)
+                    }
+                    
+                    # Notify admin of failure
+                    await interaction.followup.send(
+                        f"⚠️ API Error: {str(error)}. Please add currency manually.",
+                        ephemeral=True
+                    )
+                    
+                    # Enable manual mode for this transaction
+                    manual_needed = True
+            else:
+                # API not enabled, use manual mode
+                manual_needed = True
             
             # Try to notify the user
             try:
@@ -893,7 +1001,7 @@ class LoanCommand(commands.Cog):
                     )
                 
                 # If manual mode is needed, provide instructions
-                if config.UNBELIEVABOAT["ENABLED"] and not loan.get("unbelievaboat") and manual_integration:
+                if manual_needed and manual_integration:
                     instructions_embed = manual_integration.format_receive_loan_instructions(
                         loan,
                         user_obj,

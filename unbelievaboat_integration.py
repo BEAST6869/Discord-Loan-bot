@@ -10,44 +10,41 @@ from typing import Optional, Dict, Any, Union
 logger = logging.getLogger("discord")
 
 class UnbelievaBoatAPI:
-    def __init__(self, api_key, port: Optional[int] = None, timeout: int = 30, 
-                 max_connections: int = 100, ssl_verify: bool = True):
-        # Clean up the API key - remove any whitespace and ensure it's a string
+    def __init__(self, api_key, host=None, port=None, timeout=10):
+        """
+        Initialize the API
+        :param api_key: UnbelievaBoat API key
+        :param host: API host (None for default)
+        :param port: API port (None for default - 443)
+        :param timeout: API timeout in seconds
+        """
         self.api_key = str(api_key).strip()
-        self.base_url = 'https://unbelievaboat.com/api/v1'
         self.timeout = timeout
-        self.max_connections = max_connections
-        self.ssl_verify = ssl_verify
-        
-        # Only modify URL if port is explicitly provided and valid
-        if port is not None and isinstance(port, int) and port > 0:
-            self.port = port
-            # Extract protocol and domain from base URL
-            try:
-                url_parts = self.base_url.split('://')
-                if len(url_parts) == 2:
-                    protocol = url_parts[0]
-                    domain_parts = url_parts[1].split('/', 1)
-                    domain = domain_parts[0]
-                    path = domain_parts[1] if len(domain_parts) > 1 else ''
-                    self.base_url = f"{protocol}://{domain}:{port}/{path}"
-                    logger.info(f"Using custom port {port}, new base URL: {self.base_url}")
-                else:
-                    logger.warning(f"Invalid base URL format: {self.base_url}, ignoring port configuration")
-            except Exception as e:
-                logger.error(f"Error setting custom port: {e}")
-                # Keep the original base_url if there's an error
-        else:
-            self.port = None
-        
-        self.headers = {
-            'Authorization': self.api_key,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-        }
         self.session = None
-        logger.info(f"UnbelievaBoat API initialized with token starting with: {self.api_key[:10]}...")
-        logger.info(f"Using base URL: {self.base_url}")
+        
+        # Configure the host and port
+        self.host = host if host else "unbelievaboat.com"
+        
+        # Default port is 443 for HTTPS
+        self.port = port
+        
+        # Build base URL with proper port handling
+        if self.port and self.port != 443:
+            # Custom port for debug/testing
+            self.base_url = f"https://{self.host}:{self.port}/api/v1"
+            logger.info(f"Using custom port {self.port} for UnbelievaBoat API")
+        else:
+            # Standard HTTPS port (443)
+            self.base_url = f"https://{self.host}/api/v1"
+            logger.info(f"Using standard HTTPS port for UnbelievaBoat API")
+        
+        logger.info(f"UnbelievaBoat API initialized with base URL: {self.base_url}")
+        
+        # Headers include Authorization and Content-Type
+        self.headers = {
+            "Authorization": self.api_key,
+            "Content-Type": "application/json"
+        }
     
     async def _ensure_session(self):
         """Ensure an aiohttp session exists with proper configuration"""
@@ -173,37 +170,60 @@ class UnbelievaBoatAPI:
             # Log request details for debugging
             logger.info(f"Request data: {json.dumps(request_data)}")
             
-            async with session.patch(
-                url,
-                json=request_data
-            ) as response:
-                status = response.status
-                response_text = await response.text()
-                
-                # Log full response for debugging
-                logger.info(f"Response status: {status}")
-                logger.info(f"Response body: {response_text}")
-                
-                # Handle different response statuses
-                if status == 200:
-                    try:
-                        response_data = json.loads(response_text)
-                        logger.info(f"Currency added successfully. New balance: {response_data.get('cash', 'unknown')}")
-                        return response_data
-                    except json.JSONDecodeError:
-                        logger.error(f"Failed to parse response as JSON: {response_text}")
+            try:
+                async with session.patch(
+                    url,
+                    json=request_data
+                ) as response:
+                    status = response.status
+                    response_text = await response.text()
+                    
+                    # Log full response for debugging
+                    logger.info(f"Response status: {status}")
+                    logger.info(f"Response body: {response_text}")
+                    
+                    # Handle different response statuses
+                    if status == 200:
+                        try:
+                            response_data = json.loads(response_text)
+                            logger.info(f"Currency added successfully. New balance: {response_data.get('cash', 'unknown')}")
+                            
+                            # Log detailed response
+                            logger.info(f"Full response: user_id={response_data.get('user_id')}, cash={response_data.get('cash')}, bank={response_data.get('bank')}, total={response_data.get('total')}, found={response_data.get('found')}")
+                            
+                            return response_data
+                        except json.JSONDecodeError:
+                            logger.error(f"Failed to parse response as JSON: {response_text}")
+                            return None
+                    elif status in (401, 403):
+                        logger.error(f"API authentication error. Status: {status}")
+                        logger.error(f"Error response: {response_text}")
+                        
+                        # Check if the token is expired/invalid
+                        if "invalid token" in response_text.lower() or "expired" in response_text.lower():
+                            logger.error("API token appears to be invalid or expired. Please check your token.")
+                        elif "insufficient permissions" in response_text.lower():
+                            logger.error("API token has insufficient permissions. Make sure it has write access.")
+                            
                         return None
-                elif status in (401, 403):
-                    logger.error(f"API authentication error. Status: {status}")
-                    logger.error(f"Error response: {response_text}")
-                    return None
-                elif status == 404:
-                    logger.error(f"Guild {guild_id} or user {user_id} not found")
-                    logger.error(f"Error response: {response_text}")
-                    return None
-                else:
-                    logger.error(f"API error {status}: {response_text}")
-                    return None
+                    elif status == 404:
+                        logger.error(f"Guild {guild_id} or user {user_id} not found")
+                        logger.error(f"Error response: {response_text}")
+                        return None
+                    else:
+                        logger.error(f"API error {status}: {response_text}")
+                        
+                        # Additional advice for common errors
+                        if status == 429:
+                            logger.error("Rate limit exceeded. The bot is making too many requests.")
+                        elif status >= 500:
+                            logger.error("UnbelievaBoat server error. The service may be experiencing issues.")
+                            
+                        return None
+            except aiohttp.ClientConnectorError as e:
+                logger.error(f"Connection error: {str(e)}")
+                logger.error("Check if the UnbelievaBoat API is accessible from your network.")
+                return None
                     
         except asyncio.TimeoutError:
             logger.error(f"Request timed out after {self.timeout} seconds")
