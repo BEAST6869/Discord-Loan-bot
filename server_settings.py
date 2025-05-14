@@ -156,11 +156,12 @@ def get_max_loan_amount(guild_id):
     """
     Get the maximum loan amount for a guild
     :param guild_id: Discord guild ID as string
-    :return: Maximum loan amount as integer or default (1000000) if not set
+    :return: Maximum loan amount as integer or default if not set
     """
     guild_id = str(guild_id)  # Ensure it's a string
     guild_settings = get_guild_settings(guild_id)
-    return guild_settings.get("max_loan_amount", 1000000)  # Default: 1,000,000
+    # Set a significantly high default to make it effectively unlimited unless restricted
+    return guild_settings.get("max_loan_amount", 1000000000)  # Default: 1 billion
 
 
 def get_max_repayment_days(guild_id):

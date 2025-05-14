@@ -147,7 +147,7 @@ class SetupCommand(commands.Cog):
 
     @app_commands.command(name="set_max_loan", description="Set the maximum loan amount for this server (Admin only)")
     @app_commands.describe(
-        amount="The maximum amount that can be borrowed (between 10,000 and 10,000,000)"
+        amount="The maximum amount that can be borrowed (minimum 1,000)"
     )
     async def set_max_loan(self, interaction: discord.Interaction, amount: int):
         # Check if the user has admin permissions
@@ -157,10 +157,10 @@ class SetupCommand(commands.Cog):
                 ephemeral=True
             )
         
-        # Validate the amount
-        if amount < 10000 or amount > 10000000:
+        # Validate the amount - only enforce a minimum
+        if amount < 1000:
             return await interaction.response.send_message(
-                "The maximum loan amount must be between 10,000 and 10,000,000.",
+                "The maximum loan amount must be at least 1,000.",
                 ephemeral=True
             )
         
