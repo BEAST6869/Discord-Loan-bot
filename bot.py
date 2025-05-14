@@ -239,10 +239,21 @@ async def main():
         
         # Try to connect to Discord
         logger.info("Attempting to connect to Discord with token...")
+        
+        # Check if token is valid
+        if not config.DISCORD_TOKEN or len(config.DISCORD_TOKEN) < 50:
+            logger.error(f"Invalid Discord token format. Token length: {len(config.DISCORD_TOKEN) if config.DISCORD_TOKEN else 0}")
+            logger.error("Please check your DISCORD_TOKEN environment variable")
+            return
+        
         logger.info(f"Token starts with: {config.DISCORD_TOKEN[:10]}...")
         
         # Start the bot
         await bot.start(config.DISCORD_TOKEN)
+    except discord.errors.LoginFailure as e:
+        logger.error(f"Discord login failed: {e}")
+        logger.error("This usually means your token is invalid. Please check your DISCORD_TOKEN environment variable.")
+        logger.error(f"Token begins with: {config.DISCORD_TOKEN[:10]}..." if config.DISCORD_TOKEN else "Token is empty!")
     except Exception as e:
         logger.error(f"Error starting bot: {e}")
         traceback.print_exc()

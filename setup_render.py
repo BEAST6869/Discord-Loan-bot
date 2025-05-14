@@ -37,6 +37,15 @@ def check_environment_variables():
         print(f"WARNING: Missing required environment variables: {', '.join(missing_vars)}")
         return False
     
+    # Validate token format
+    token = os.environ.get("DISCORD_TOKEN", "")
+    if len(token) < 50:
+        print(f"ERROR: Discord token appears invalid. Length: {len(token)}")
+        print("Discord tokens should be at least 50 characters long")
+        print(f"Token starts with: {token[:10]}..." if token else "Token is empty!")
+        return False
+        
+    print(f"Discord token appears valid (starts with {token[:10]}...)")
     return True
 
 def generate_config_file():
