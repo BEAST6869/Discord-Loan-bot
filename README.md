@@ -37,20 +37,32 @@ A Discord bot for managing loans in One Piece themed crews, allowing captains to
 
 ## Installation
 
+### Local Setup
 1. Clone this repository
 2. Install the requirements:
    ```
    pip install -r requirements.txt
    ```
-3. Create a `.env` file with the following content:
+3. Copy `config_template.py` to `config.py` and update with your actual tokens:
    ```
-   DISCORD_TOKEN=your_discord_bot_token
-   UNBELIEVABOAT_API_KEY=your_unbelievaboat_api_key
+   cp config_template.py config.py
    ```
+   Then edit `config.py` with your Discord token and UnbelievaBoat API key.
 4. Run the bot:
    ```
    python run_bot.py
    ```
+
+### Deployment on Render
+1. Fork this repository to your GitHub account
+2. Sign up for [Render](https://render.com) and connect your GitHub account
+3. Click "New Web Service" and select your forked repository
+4. Render will automatically detect the configuration from `render.yaml`
+5. Add the following environment variables in the Render dashboard:
+   - `DISCORD_TOKEN`: Your Discord bot token
+   - `UNBELIEVABOAT_API_KEY`: Your UnbelievaBoat API key
+   - `CLIENT_ID`: Your Discord application client ID
+6. Deploy the service
 
 ## Auto-Startup Configuration
 
