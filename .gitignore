@@ -33,4 +33,7 @@ desktop.ini
 
 # Bot runtime files
 bot.log
-watchdog.log 
+watchdog.log
+
+# Configuration files with sensitive data
+config.py 
