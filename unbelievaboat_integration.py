@@ -5,14 +5,30 @@ import asyncio
 import logging
 import json
 import os
+from typing import Optional, Dict, Any, Union
 
 logger = logging.getLogger("discord")
 
 class UnbelievaBoatAPI:
-    def __init__(self, api_key):
+    def __init__(self, api_key, port: Optional[int] = None, timeout: int = 30, 
+                 max_connections: int = 100, ssl_verify: bool = True):
         # Clean up the API key - remove any whitespace and ensure it's a string
         self.api_key = str(api_key).strip()
         self.base_url = 'https://unbelievaboat.com/api/v1'
+        self.port = port
+        self.timeout = timeout
+        self.max_connections = max_connections
+        self.ssl_verify = ssl_verify
+        
+        # Construct URL with port if specified
+        if self.port is not None:
+            # Extract protocol and domain from base URL
+            url_parts = self.base_url.split('://')
+            protocol = url_parts[0]
+            domain = url_parts[1].split('/')[0]
+            path = '/'.join(url_parts[1].split('/')[1:])
+            self.base_url = f"{protocol}://{domain}:{self.port}/{path}"
+        
         self.headers = {
             'Authorization': self.api_key,  # JWT tokens are sent as-is
             'Content-Type': 'application/json',
@@ -20,12 +36,29 @@ class UnbelievaBoatAPI:
         }
         self.session = None
         logger.info(f"UnbelievaBoat API initialized with token starting with: {self.api_key[:10]}...")
+        logger.info(f"Using base URL: {self.base_url}")
     
     async def _ensure_session(self):
-        """Ensure an aiohttp session exists"""
+        """Ensure an aiohttp session exists with proper configuration"""
         if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession()
-            logger.info("Created new aiohttp session for UnbelievaBoat API")
+            # Configure TCP connector for better connection management
+            connector = aiohttp.TCPConnector(
+                limit=self.max_connections,  # Max number of connections
+                ssl=self.ssl_verify,         # SSL verification
+                force_close=False,           # Keep-alive connections
+                enable_cleanup_closed=True   # Clean up closed connections
+            )
+            
+            # Configure timeout for all requests
+            timeout = aiohttp.ClientTimeout(total=self.timeout)
+            
+            # Create session with the configured connector and timeout
+            self.session = aiohttp.ClientSession(
+                connector=connector,
+                timeout=timeout,
+                headers=self.headers  # Apply headers to all requests by default
+            )
+            logger.info(f"Created new aiohttp session with {self.max_connections} max connections")
         return self.session
 
     async def get_user_balance(self, guild_id, user_id):
@@ -42,10 +75,7 @@ class UnbelievaBoatAPI:
             url = f"{self.base_url}/guilds/{guild_id}/users/{user_id}"
             logger.info(f"Making GET request to: {url}")
             
-            async with session.get(
-                url,
-                headers=self.headers
-            ) as response:
+            async with session.get(url) as response:
                 status = response.status
                 response_text = await response.text()
                 
@@ -71,6 +101,12 @@ class UnbelievaBoatAPI:
                 else:
                     logger.error(f"API error {status}: {response_text}")
                     return None
+        except asyncio.TimeoutError:
+            logger.error(f"Request timed out after {self.timeout} seconds")
+            return None
+        except aiohttp.ClientConnectorError as e:
+            logger.error(f"Connection error: {str(e)}")
+            return None
         except Exception as error:
             logger.error(f"Error getting user balance: {str(error)}")
             import traceback
@@ -110,12 +146,10 @@ class UnbelievaBoatAPI:
             }
             
             # Log request details for debugging
-            logger.info(f"Request headers: {json.dumps(self.headers)}")
             logger.info(f"Request data: {json.dumps(request_data)}")
             
             async with session.patch(
                 url,
-                headers=self.headers,
                 json=request_data
             ) as response:
                 status = response.status
@@ -146,6 +180,12 @@ class UnbelievaBoatAPI:
                     logger.error(f"API error {status}: {response_text}")
                     return None
                     
+        except asyncio.TimeoutError:
+            logger.error(f"Request timed out after {self.timeout} seconds")
+            return None
+        except aiohttp.ClientConnectorError as e:
+            logger.error(f"Connection error: {str(e)}")
+            return None
         except Exception as error:
             logger.error(f"Error adding currency: {str(error)}")
             import traceback
@@ -170,7 +210,6 @@ class UnbelievaBoatAPI:
             
             async with session.patch(
                 url,
-                headers=self.headers,
                 json={
                     'cash': -amount,  # Negative amount to remove
                     'reason': reason
@@ -204,6 +243,12 @@ class UnbelievaBoatAPI:
                 response_data = await response.json()
                 logger.info(f"Currency removed successfully. New balance: {response_data.get('cash', 'unknown')}")
                 return response_data
+        except asyncio.TimeoutError:
+            logger.error(f"Request timed out after {self.timeout} seconds")
+            return None
+        except aiohttp.ClientConnectorError as e:
+            logger.error(f"Connection error: {str(e)}")
+            return None
         except Exception as error:
             logger.error(f"Error removing currency: {str(error)}")
             return None
@@ -225,7 +270,6 @@ class UnbelievaBoatAPI:
             
             async with session.get(
                 url,
-                headers=self.headers,
                 params={
                     'sort': sort_by,
                     'limit': limit
@@ -245,6 +289,12 @@ class UnbelievaBoatAPI:
                 response_data = await response.json()
                 logger.info(f"Got leaderboard data with {len(response_data)} entries")
                 return response_data
+        except asyncio.TimeoutError:
+            logger.error(f"Request timed out after {self.timeout} seconds")
+            return None
+        except aiohttp.ClientConnectorError as e:
+            logger.error(f"Connection error: {str(e)}")
+            return None
         except Exception as error:
             logger.error(f"Error fetching leaderboard: {str(error)}")
             return None
