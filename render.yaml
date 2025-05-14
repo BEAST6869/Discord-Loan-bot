@@ -2,10 +2,11 @@ services:
   - type: web
     name: discord-loan-bot
     env: python
+    runtime: python3
+    plan: free
     buildCommand: pip install -r requirements.txt
-    # You can use either direct bot start or watchdog depending on your preference
-    # startCommand: python bot.py  # Direct start of the bot
-    startCommand: python run_bot.py  # Start with watchdog for automatic restarts
+    # Use the setup script to ensure all directories exist
+    startCommand: python setup_render.py
     envVars:
       - key: DISCORD_TOKEN
         sync: false

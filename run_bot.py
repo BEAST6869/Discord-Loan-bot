@@ -33,7 +33,7 @@ def run_bot():
     bot_script = "bot.py"
     
     # Python executable
-    python_cmd = "py -3.11" if sys.platform == "win32" else "python3"
+    python_cmd = "py -3.11" if sys.platform == "win32" else "python"
     
     while True:
         start_time = time.time()
