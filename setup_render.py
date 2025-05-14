@@ -5,6 +5,8 @@ Setup script to ensure required directories exist for Render hosting
 import os
 import sys
 import subprocess
+import importlib
+import time
 
 def ensure_directories():
     """Ensure all required directories exist"""
@@ -40,6 +42,7 @@ def check_environment_variables():
 def generate_config_file():
     """Generate config.py file from environment variables"""
     print("Generating config.py from environment variables...")
+    print(f"Current working directory: {os.getcwd()}")
     
     config_content = """\"\"\"Discord bot configuration\"\"\"
 import os
@@ -84,19 +87,80 @@ SERVER_SETTINGS = {{
     with open("config.py", "w") as f:
         f.write(config_content)
     
-    print("config.py has been generated")
+    # Verify the file was created
+    if os.path.exists("config.py"):
+        print(f"config.py has been generated successfully at {os.path.abspath('config.py')}")
+        # List all files in current directory for debugging
+        print("Files in current directory:")
+        for file in os.listdir():
+            print(f"  - {file}")
+    else:
+        print("ERROR: Failed to create config.py file!")
+
+def verify_config_module():
+    """Verify that the config module can be imported"""
+    print("Verifying config module can be imported...")
+    try:
+        # Make sure module can be found
+        sys.path.insert(0, os.getcwd())
+        print(f"Python path: {sys.path}")
+        
+        # Attempt to import
+        print("Attempting to import config module...")
+        import config
+        print("Config module imported successfully!")
+        print(f"DISCORD_TOKEN starts with: {config.DISCORD_TOKEN[:5]}...")
+        return True
+    except Exception as e:
+        print(f"ERROR importing config module: {e}")
+        return False
+
+def run_bot_direct():
+    """Run the bot directly instead of through the watchdog"""
+    print("Running bot directly due to config issues...")
+    try:
+        # Create a simple bot runner that doesn't require config import
+        direct_runner = """
+import sys
+import os
+
+# Make sure current directory is in path
+sys.path.insert(0, os.getcwd())
+
+# Import the bot main module
+import bot
+import asyncio
+
+# Run the bot
+asyncio.run(bot.main())
+"""
+        with open("direct_runner.py", "w") as f:
+            f.write(direct_runner)
+        
+        # Run the direct runner
+        subprocess.run([sys.executable, "direct_runner.py"], check=True)
+    except Exception as e:
+        print(f"ERROR running bot directly: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     print("Running setup for Render deployment...")
+    print(f"Python version: {sys.version}")
     ensure_directories()
     
     if check_environment_variables():
         print("Environment variables are properly set")
     else:
-        print("Missing environment variables! Bot may not function correctly.")
+        print("WARNING: Missing environment variables! Bot may not function correctly.")
     
     # Generate config.py from environment variables
     generate_config_file()
+    
+    # Verify config module can be imported
+    if not verify_config_module():
+        print("WARNING: Config module could not be imported. Trying alternative approach.")
+        run_bot_direct()
+        sys.exit(1)
     
     print("Setup complete. Running the main bot...")
     

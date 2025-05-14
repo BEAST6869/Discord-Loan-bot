@@ -10,10 +10,7 @@ import json
 import asyncio
 import datetime
 import logging
-import config
 import traceback
-import server_settings
-
 
 # Set up logging
 logging.basicConfig(
@@ -27,6 +24,69 @@ logging.basicConfig(
 
 logger = logging.getLogger("discord")
 
+# Add current directory to system path to help with imports
+sys.path.insert(0, os.getcwd())
+logger.info(f"Python path: {sys.path}")
+
+# Try to import config, use environment variables as fallback
+try:
+    import config
+    logger.info("Config module imported successfully")
+except ModuleNotFoundError:
+    logger.warning("Config module not found, creating from environment variables")
+    # Create a basic config module from environment variables
+    import types
+    config = types.ModuleType('config')
+    config.DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN", "")
+    config.CLIENT_ID = os.environ.get("CLIENT_ID", "")
+    config.UNBELIEVABOAT = {
+        "ENABLED": True,
+        "API_KEY": os.environ.get("UNBELIEVABOAT_API_KEY", ""),
+        "GUILD_ID": "",
+        "CURRENCY_NAME": "Berries",
+        "MANUAL_MODE": True,
+        "BANK_ACCOUNT": "Bank",
+        "COMMANDS": {
+            "ADD": "!add",
+            "PAY": "!pay",
+            "BALANCE": "!balance"
+        }
+    }
+    config.SERVER_SETTINGS = {}
+    sys.modules['config'] = config
+    logger.info("Created config module from environment variables")
+
+# Try to import server_settings, create fallback if not found
+try:
+    import server_settings
+    logger.info("Server settings module imported successfully")
+except ModuleNotFoundError:
+    logger.warning("Server settings module not found, creating fallback")
+    # Create a basic server_settings module
+    import types
+    server_settings = types.ModuleType('server_settings')
+    
+    def load_settings():
+        """Load server settings from file"""
+        logger.info("Loading server settings (fallback implementation)")
+        try:
+            if os.path.exists("data/server_settings.json"):
+                with open("data/server_settings.json", "r") as f:
+                    settings = json.load(f)
+                config.SERVER_SETTINGS = settings
+                logger.info("Loaded server settings from file")
+            else:
+                logger.info("No server settings file found, using defaults")
+        except Exception as e:
+            logger.error(f"Error loading server settings: {e}")
+    
+    server_settings.load_settings = load_settings
+    server_settings.save_settings = lambda: None
+    server_settings.get_guild_settings = lambda guild_id: config.SERVER_SETTINGS.get(str(guild_id), {})
+    server_settings.get_captain_role = lambda guild_id: server_settings.get_guild_settings(guild_id).get("captain_role_id", None)
+    server_settings.check_is_captain = lambda guild_id, member: True  # Default allow everyone
+    sys.modules['server_settings'] = server_settings
+    logger.info("Created fallback server_settings module")
 
 # Initialize bot with proper intents
 intents = discord.Intents.all()  # Enable all intents for better functionality
