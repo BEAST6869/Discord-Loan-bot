@@ -7,7 +7,7 @@ services:
     buildCommand: pip install -r requirements.txt
     # Run the token validation script first, then use setup_render.py
     startCommand: |
-      python test_token.py && python setup_render.py
+      python test_token.py && python bot.py
     envVars:
       - key: DISCORD_TOKEN
         sync: false
