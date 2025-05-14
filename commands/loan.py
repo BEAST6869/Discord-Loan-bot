@@ -6,6 +6,7 @@ import random
 import config
 import sys
 import os
+import logging
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -15,12 +16,27 @@ import server_settings
 
 # Initialize UnbelievaBoat integration
 unbelievaboat = None
-manual_integration = None
 
-# Load appropriate integration
+# Try to get port configuration from environment
+unbelievaboat_port = None
+try:
+    port_env = os.environ.get('UNBELIEVABOAT_PORT')
+    if port_env:
+        unbelievaboat_port = int(port_env)
+        logging.info(f"Using UnbelievaBoat port from environment: {unbelievaboat_port}")
+except (ValueError, TypeError) as e:
+    logging.warning(f"Invalid UNBELIEVABOAT_PORT environment variable: {e}")
+
 if config.UNBELIEVABOAT["ENABLED"]:
     from unbelievaboat_integration import UnbelievaBoatAPI
-    unbelievaboat = UnbelievaBoatAPI(config.UNBELIEVABOAT["API_KEY"])
+    unbelievaboat = UnbelievaBoatAPI(
+        api_key=config.UNBELIEVABOAT["API_KEY"],
+        port=unbelievaboat_port,
+        timeout=45  # Increased timeout for Render
+    )
+    logging.info("UnbelievaBoat API integration enabled")
+else:
+    logging.info("UnbelievaBoat API integration disabled")
 
 # Always import manual integration as fallback
 import manual_unbelievaboat as manual_integration

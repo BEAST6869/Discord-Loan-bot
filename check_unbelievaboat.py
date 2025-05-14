@@ -6,6 +6,7 @@ import asyncio
 import config
 import logging
 import json
+import os
 from unbelievaboat_integration import UnbelievaBoatAPI
 
 # Set up logging
@@ -23,8 +24,22 @@ async def check_api():
     """Check if the UnbelievaBoat API token is valid and working"""
     logger.info(f"Checking UnbelievaBoat API token: {config.UNBELIEVABOAT['API_KEY'][:12]}...")
     
-    # Create API client
-    api = UnbelievaBoatAPI(config.UNBELIEVABOAT["API_KEY"])
+    # Try to get port configuration from environment
+    unbelievaboat_port = None
+    try:
+        port_env = os.environ.get('UNBELIEVABOAT_PORT')
+        if port_env:
+            unbelievaboat_port = int(port_env)
+            logger.info(f"Using UnbelievaBoat port from environment: {unbelievaboat_port}")
+    except (ValueError, TypeError) as e:
+        logger.warning(f"Invalid UNBELIEVABOAT_PORT environment variable: {e}")
+    
+    # Create API client with appropriate configuration
+    api = UnbelievaBoatAPI(
+        api_key=config.UNBELIEVABOAT["API_KEY"],
+        port=unbelievaboat_port,
+        timeout=45  # Increased timeout for potential network delays
+    )
     
     # Check if token works - we need a guild and user ID to test with
     guild_id = input("Enter a guild ID to test with: ")

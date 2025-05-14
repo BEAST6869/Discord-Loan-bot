@@ -15,22 +15,33 @@ class UnbelievaBoatAPI:
         # Clean up the API key - remove any whitespace and ensure it's a string
         self.api_key = str(api_key).strip()
         self.base_url = 'https://unbelievaboat.com/api/v1'
-        self.port = port
         self.timeout = timeout
         self.max_connections = max_connections
         self.ssl_verify = ssl_verify
         
-        # Construct URL with port if specified
-        if self.port is not None:
+        # Only modify URL if port is explicitly provided and valid
+        if port is not None and isinstance(port, int) and port > 0:
+            self.port = port
             # Extract protocol and domain from base URL
-            url_parts = self.base_url.split('://')
-            protocol = url_parts[0]
-            domain = url_parts[1].split('/')[0]
-            path = '/'.join(url_parts[1].split('/')[1:])
-            self.base_url = f"{protocol}://{domain}:{self.port}/{path}"
+            try:
+                url_parts = self.base_url.split('://')
+                if len(url_parts) == 2:
+                    protocol = url_parts[0]
+                    domain_parts = url_parts[1].split('/', 1)
+                    domain = domain_parts[0]
+                    path = domain_parts[1] if len(domain_parts) > 1 else ''
+                    self.base_url = f"{protocol}://{domain}:{port}/{path}"
+                    logger.info(f"Using custom port {port}, new base URL: {self.base_url}")
+                else:
+                    logger.warning(f"Invalid base URL format: {self.base_url}, ignoring port configuration")
+            except Exception as e:
+                logger.error(f"Error setting custom port: {e}")
+                # Keep the original base_url if there's an error
+        else:
+            self.port = None
         
         self.headers = {
-            'Authorization': self.api_key,  # JWT tokens are sent as-is
+            'Authorization': self.api_key,
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         }
@@ -41,24 +52,30 @@ class UnbelievaBoatAPI:
     async def _ensure_session(self):
         """Ensure an aiohttp session exists with proper configuration"""
         if self.session is None or self.session.closed:
-            # Configure TCP connector for better connection management
-            connector = aiohttp.TCPConnector(
-                limit=self.max_connections,  # Max number of connections
-                ssl=self.ssl_verify,         # SSL verification
-                force_close=False,           # Keep-alive connections
-                enable_cleanup_closed=True   # Clean up closed connections
-            )
-            
-            # Configure timeout for all requests
-            timeout = aiohttp.ClientTimeout(total=self.timeout)
-            
-            # Create session with the configured connector and timeout
-            self.session = aiohttp.ClientSession(
-                connector=connector,
-                timeout=timeout,
-                headers=self.headers  # Apply headers to all requests by default
-            )
-            logger.info(f"Created new aiohttp session with {self.max_connections} max connections")
+            try:
+                # Configure TCP connector for better connection management
+                connector = aiohttp.TCPConnector(
+                    limit=self.max_connections,
+                    ssl=self.ssl_verify,
+                    force_close=False,
+                    enable_cleanup_closed=True
+                )
+                
+                # Configure timeout for all requests
+                timeout = aiohttp.ClientTimeout(total=self.timeout)
+                
+                # Create session with the configured connector and timeout
+                self.session = aiohttp.ClientSession(
+                    connector=connector,
+                    timeout=timeout,
+                    headers=self.headers  # Apply headers to all requests by default
+                )
+                logger.info(f"Created new aiohttp session with {self.max_connections} max connections")
+            except Exception as e:
+                logger.error(f"Error creating aiohttp session: {e}")
+                # Fallback to a simple session if the configured one fails
+                self.session = aiohttp.ClientSession(headers=self.headers)
+                logger.info("Created fallback aiohttp session after error")
         return self.session
 
     async def get_user_balance(self, guild_id, user_id):
