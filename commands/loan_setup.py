@@ -1,0 +1,226 @@
+import discord
+from discord import app_commands
+from discord.ext import commands
+import sys
+import os
+
+# Add parent directory to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import server_settings
+
+class LoanSetupCommand(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+        
+    @app_commands.command(name="setup_loans", description="Configure loan request settings (Admin only)")
+    @app_commands.describe(
+        channel="The channel where loan requests will be sent"
+    )
+    async def setup_loans(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        # Check if the user has admin permissions
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message(
+                "You don't have permission to use this command. Only administrators can configure loan settings.",
+                ephemeral=True
+            )
+        
+        # Defer the reply
+        await interaction.response.defer(ephemeral=True)
+            
+        guild_id = str(interaction.guild.id)
+        channel_id = str(channel.id)
+        
+        # Update the server settings
+        success = server_settings.set_admin_channel(guild_id, channel_id)
+        
+        if not success:
+            return await interaction.followup.send(
+                "❌ There was an error setting the loan request channel. Please try again.",
+                ephemeral=True
+            )
+        
+        # Create a selection menu for approval roles
+        # We'll use a select menu with available roles in the server
+        roles_select = discord.ui.RoleSelect(
+            placeholder="Select roles that can approve loans",
+            min_values=0,
+            max_values=10  # Set to a reasonable limit
+        )
+        
+        # Create the view
+        view = discord.ui.View(timeout=300)  # 5 minute timeout
+        view.add_item(roles_select)
+        
+        # Add a submit button
+        submit_button = discord.ui.Button(
+            style=discord.ButtonStyle.primary,
+            label="Save Settings",
+            custom_id="save_loan_settings"
+        )
+        view.add_item(submit_button)
+        
+        # Save the original message so we can edit it
+        message = await interaction.followup.send(
+            f"✅ Loan request channel set to {channel.mention}. Now select which roles can approve loan requests:",
+            view=view,
+            ephemeral=True
+        )
+        
+        # Define what happens when the submit button is clicked
+        async def on_submit(submit_interaction):
+            # Get the selected roles
+            selected_roles = [str(role.id) for role in roles_select.values]
+            
+            # Save the roles to the server settings
+            server_settings.set_approval_roles(guild_id, selected_roles)
+            
+            # Format the role mentions
+            role_mentions = []
+            for role_id in selected_roles:
+                role = interaction.guild.get_role(int(role_id))
+                if role:
+                    role_mentions.append(role.mention)
+            
+            role_text = ", ".join(role_mentions) if role_mentions else "No roles selected (Admins only)"
+            
+            # Update the message
+            await message.edit(
+                content=f"✅ Loan settings configured successfully!\n\n**Loan Request Channel:** {channel.mention}\n**Approval Roles:** {role_text}",
+                view=None  # Remove the view
+            )
+            
+            # Acknowledge the interaction
+            await submit_interaction.response.defer()
+            
+        # Bind the button callback
+        submit_button.callback = on_submit
+    
+    @app_commands.command(name="loan_notification_roles", description="Set roles to be pinged for loan requests (Admin only)")
+    @app_commands.describe(
+        roles="The roles to ping when a loan request is received (comma-separated IDs)"
+    )
+    async def loan_notification_roles(self, interaction: discord.Interaction, roles: str):
+        """Set roles to be pinged when a loan request is submitted"""
+        # Check if the user has admin permissions
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message(
+                "You don't have permission to use this command. Only administrators can configure loan settings.",
+                ephemeral=True
+            )
+        
+        guild_id = str(interaction.guild.id)
+        
+        # Parse the role IDs
+        try:
+            role_ids = [role_id.strip() for role_id in roles.split(",")]
+            valid_role_ids = []
+            
+            # Validate role IDs
+            for role_id in role_ids:
+                try:
+                    role = interaction.guild.get_role(int(role_id))
+                    if role:
+                        valid_role_ids.append(str(role.id))
+                except ValueError:
+                    pass
+            
+            # Save the roles
+            server_settings.set_approval_roles(guild_id, valid_role_ids)
+            
+            # Format role mentions
+            role_mentions = []
+            for role_id in valid_role_ids:
+                role = interaction.guild.get_role(int(role_id))
+                if role:
+                    role_mentions.append(role.mention)
+            
+            role_text = ", ".join(role_mentions) if role_mentions else "No valid roles provided"
+            
+            return await interaction.response.send_message(
+                f"✅ Loan approval roles set to: {role_text}",
+                ephemeral=True
+            )
+        except Exception as e:
+            return await interaction.response.send_message(
+                f"❌ Error setting approval roles: {str(e)}",
+                ephemeral=True
+            )
+    
+    @app_commands.command(name="view_loan_settings", description="View current loan request settings (Admin only)")
+    async def view_loan_settings(self, interaction: discord.Interaction):
+        """View the current loan request settings"""
+        # Check if the user has admin permissions
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message(
+                "You don't have permission to use this command. Only administrators can view loan settings.",
+                ephemeral=True
+            )
+        
+        guild_id = str(interaction.guild.id)
+        
+        # Get the current settings
+        admin_channel_id = server_settings.get_admin_channel(guild_id)
+        approval_role_ids = server_settings.get_approval_roles(guild_id)
+        max_loan_amount = server_settings.get_max_loan_amount(guild_id)
+        captain_role_id = server_settings.get_captain_role(guild_id)
+        
+        # Create the embed
+        embed = discord.Embed(
+            title="Loan Request Settings",
+            description="Current settings for loan requests in this server",
+            color=0x0099FF
+        )
+        
+        # Add channel information
+        channel_text = "Not set"
+        if admin_channel_id:
+            channel = interaction.guild.get_channel(int(admin_channel_id))
+            channel_text = channel.mention if channel else f"Unknown channel (ID: {admin_channel_id})"
+        
+        embed.add_field(
+            name="Loan Request Channel",
+            value=channel_text,
+            inline=False
+        )
+        
+        # Add approval roles information
+        role_mentions = []
+        for role_id in approval_role_ids:
+            role = interaction.guild.get_role(int(role_id))
+            if role:
+                role_mentions.append(role.mention)
+        
+        role_text = ", ".join(role_mentions) if role_mentions else "No roles set (Admins only)"
+        
+        embed.add_field(
+            name="Approval Roles",
+            value=role_text,
+            inline=False
+        )
+        
+        # Add max loan amount
+        embed.add_field(
+            name="Maximum Loan Amount",
+            value=f"{max_loan_amount:,}",
+            inline=True
+        )
+        
+        # Add captain role
+        captain_text = "Not set (everyone can request loans)"
+        if captain_role_id:
+            captain_role = interaction.guild.get_role(int(captain_role_id))
+            captain_text = captain_role.mention if captain_role else f"Unknown role (ID: {captain_role_id})"
+        
+        embed.add_field(
+            name="Captain Role",
+            value=captain_text,
+            inline=True
+        )
+        
+        # Send the embed
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+async def setup(bot):
+    await bot.add_cog(LoanSetupCommand(bot)) 

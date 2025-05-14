@@ -1,0 +1,36 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# Local development settings
+.env
+*.log
+logs/
+
+# Bot data files
+data/database.json
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Windows specific files
+Thumbs.db
+desktop.ini
+
+# Bot runtime files
+bot.log
+watchdog.log 
