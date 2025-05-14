@@ -4,20 +4,22 @@ import aiohttp
 import asyncio
 import logging
 import json
+import os
 
 logger = logging.getLogger("discord")
 
 class UnbelievaBoatAPI:
     def __init__(self, api_key):
-        self.api_key = api_key
+        # Clean up the API key - remove any whitespace and ensure it's a string
+        self.api_key = str(api_key).strip()
         self.base_url = 'https://unbelievaboat.com/api/v1'
         self.headers = {
-            'Authorization': f'Bearer {api_key}',  # Add Bearer prefix
+            'Authorization': self.api_key,  # JWT tokens are sent as-is
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         }
         self.session = None
-        logger.info(f"UnbelievaBoat API initialized with token starting with: {api_key[:10]}...")
+        logger.info(f"UnbelievaBoat API initialized with token starting with: {self.api_key[:10]}...")
     
     async def _ensure_session(self):
         """Ensure an aiohttp session exists"""
@@ -45,31 +47,34 @@ class UnbelievaBoatAPI:
                 headers=self.headers
             ) as response:
                 status = response.status
+                response_text = await response.text()
                 
-                # Log response status
-                logger.info(f"Balance request status: {status}")
+                logger.info(f"Response status: {status}")
+                logger.info(f"Response body: {response_text}")
                 
-                # If 401 or 403, likely API token issue
-                if status == 401 or status == 403:
+                if status == 200:
+                    try:
+                        response_data = json.loads(response_text)
+                        logger.info(f"Got balance data: {json.dumps(response_data)[:100]}...")
+                        return response_data
+                    except json.JSONDecodeError:
+                        logger.error(f"Failed to parse response as JSON: {response_text}")
+                        return None
+                elif status in (401, 403):
                     logger.error("API authentication error. Check your API token.")
+                    logger.error(f"Error response: {response_text}")
                     return None
-                
-                # If 404, likely guild or user not found
-                if status == 404:
+                elif status == 404:
                     logger.error(f"Guild {guild_id} or user {user_id} not found")
+                    logger.error(f"Error response: {response_text}")
                     return None
-                
-                # Check for other errors
-                if status >= 400:
-                    text = await response.text()
-                    logger.error(f"API error {status}: {text}")
+                else:
+                    logger.error(f"API error {status}: {response_text}")
                     return None
-                    
-                response_data = await response.json()
-                logger.info(f"Got balance data: {json.dumps(response_data)[:100]}...")
-                return response_data
         except Exception as error:
             logger.error(f"Error getting user balance: {str(error)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
 
     async def add_currency(self, guild_id, user_id, amount, reason=''):
@@ -82,19 +87,30 @@ class UnbelievaBoatAPI:
         :return: Updated balance information or None if error
         """
         try:
+            # Validate inputs
+            if not guild_id or not user_id:
+                logger.error("Invalid guild_id or user_id")
+                return None
+                
+            if not isinstance(amount, (int, float)) or amount <= 0:
+                logger.error(f"Invalid amount: {amount}")
+                return None
+
             logger.info(f"Adding {amount} to user {user_id} in guild {guild_id}")
             session = await self._ensure_session()
             
-            # Updated endpoint format
-            url = f"{self.base_url}/guilds/{guild_id}/users/{user_id}/balance"
-            logger.info(f"Making PATCH request to: {url} with data: cash={amount}, reason={reason}")
+            # Use the correct endpoint format
+            url = f"{self.base_url}/guilds/{guild_id}/users/{user_id}"
+            logger.info(f"Making PATCH request to: {url}")
             
-            # Log full request details for debugging
-            logger.info(f"Request headers: {json.dumps(self.headers)}")
+            # Prepare request data
             request_data = {
-                'cash': amount,
-                'reason': reason
+                'cash': int(amount),  # Ensure amount is an integer
+                'reason': str(reason)  # Ensure reason is a string
             }
+            
+            # Log request details for debugging
+            logger.info(f"Request headers: {json.dumps(self.headers)}")
             logger.info(f"Request data: {json.dumps(request_data)}")
             
             async with session.patch(
@@ -103,35 +119,31 @@ class UnbelievaBoatAPI:
                 json=request_data
             ) as response:
                 status = response.status
-                
-                # Log response status and full response for debugging
-                logger.info(f"Add currency request status: {status}")
                 response_text = await response.text()
+                
+                # Log full response for debugging
+                logger.info(f"Response status: {status}")
                 logger.info(f"Response body: {response_text}")
                 
-                # If 401 or 403, likely API token issue
-                if status == 401 or status == 403:
-                    logger.error("API authentication error. Check your API token.")
+                # Handle different response statuses
+                if status == 200:
+                    try:
+                        response_data = json.loads(response_text)
+                        logger.info(f"Currency added successfully. New balance: {response_data.get('cash', 'unknown')}")
+                        return response_data
+                    except json.JSONDecodeError:
+                        logger.error(f"Failed to parse response as JSON: {response_text}")
+                        return None
+                elif status in (401, 403):
+                    logger.error(f"API authentication error. Status: {status}")
                     logger.error(f"Error response: {response_text}")
                     return None
-                
-                # If 404, likely guild or user not found
-                if status == 404:
+                elif status == 404:
                     logger.error(f"Guild {guild_id} or user {user_id} not found")
                     logger.error(f"Error response: {response_text}")
                     return None
-                
-                # Check for other errors
-                if status >= 400:
+                else:
                     logger.error(f"API error {status}: {response_text}")
-                    return None
-                
-                try:
-                    response_data = json.loads(response_text)
-                    logger.info(f"Currency added successfully. New balance: {response_data.get('cash', 'unknown')}")
-                    return response_data
-                except json.JSONDecodeError:
-                    logger.error(f"Failed to parse response as JSON: {response_text}")
                     return None
                     
         except Exception as error:
