@@ -525,6 +525,10 @@ class LoanCommand(commands.Cog):
             
         loan_database["loans"].append(loan)
         
+        # Log successful loan creation
+        logger.info(f"Created active loan #{loan_id} for user {loan_request['user_id']} with amount {loan_request['amount']}")
+        logger.info(f"Current loans in database: {len(loan_database['loans'])}")
+        
         # Get user information
         user_id = loan_request["user_id"]
         try:
@@ -877,6 +881,10 @@ class LoanCommand(commands.Cog):
                 loan_database["loans"] = []
                 
             loan_database["loans"].append(loan)
+            
+            # Log successful loan creation
+            logger.info(f"Created active loan #{loan_id} for user {loan_request['user_id']} with amount {loan_request['amount']}")
+            logger.info(f"Current loans in database: {len(loan_database['loans'])}")
             
             # Get user information
             user_id = loan_request["user_id"]

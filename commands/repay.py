@@ -10,6 +10,9 @@ import logging
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Initialize logger
+logger = logging.getLogger("repay")
+
 # Initialize UnbelievaBoat integration
 unbelievaboat = None
 
@@ -57,34 +60,69 @@ class RepayCommand(commands.Cog):
                 )
             
             user_id = str(interaction.user.id)
+            guild_id = str(interaction.guild.id)
             
             # Log the repayment attempt
-            print(f"Repayment attempt by {interaction.user} for loan ID: {loan_id}")
+            logger.info(f"Repayment attempt by {interaction.user} (ID: {user_id}) for loan ID: {loan_id} in guild {guild_id}")
             
             # Get loan database from bot
             loan_database = self.bot.loan_database
             
+            # Debug log for available loans
+            logger.info(f"Current loans in database: {len(loan_database.get('loans', []))}")
+            for l in loan_database.get('loans', []):
+                logger.info(f"Loan in DB: ID={l.get('id')}, User={l.get('user_id')}, Status={l.get('status')}")
+            
             # Find the loan
             if "loans" not in loan_database or not isinstance(loan_database["loans"], list):
                 loan_database["loans"] = []
+                logger.warning(f"Loans array did not exist in database, initialized empty array")
             
             # Find loan index
             loan_index = -1
             for i, loan in enumerate(loan_database["loans"]):
-                if loan and loan.get("id") == loan_id and loan.get("user_id") == user_id:
-                    loan_index = i
-                    break
+                if loan and loan.get("id") == loan_id:
+                    # First check if this user is the borrower
+                    if loan.get("user_id") == user_id:
+                        loan_index = i
+                        logger.info(f"Loan found: ID={loan_id}, Index={i}, Status={loan.get('status')}")
+                        break
+                    else:
+                        logger.warning(f"User {user_id} attempted to repay loan {loan_id} belonging to user {loan.get('user_id')}")
             
             if loan_index == -1:
-                print(f"Loan not found. ID: {loan_id}, User ID: {user_id}")
-                print(f"Available loans: {loan_database['loans']}")
+                logger.warning(f"Loan not found. ID: {loan_id}, User ID: {user_id}")
+                
+                # Check if the loan is in the loan_requests array still
+                request_found = False
+                for req in loan_database.get("loan_requests", []):
+                    if req and req.get("id") == loan_id:
+                        request_found = True
+                        status = req.get("status")
+                        logger.warning(f"Found loan in loan_requests with status: {status}")
+                        if status == "pending":
+                            return await interaction.followup.send(
+                                f"Loan #{loan_id} is still pending approval. Please wait for an admin to approve your loan request."
+                            )
+                        if status == "approved":
+                            return await interaction.followup.send(
+                                f"Loan #{loan_id} was approved but not properly moved to active loans. Please contact an admin to fix this issue."
+                            )
                 
                 return await interaction.followup.send(
                     f"Loan #{loan_id} not found or you are not the borrower of this loan. Please check the loan ID and try again."
                 )
             
             loan = loan_database["loans"][loan_index]
-            print(f"Loan found: {loan}")
+            
+            # Check if loan is already repaid
+            if loan.get("status") != "active":
+                logger.warning(f"Attempted to repay loan #{loan_id} with status: {loan.get('status')}")
+                return await interaction.followup.send(
+                    f"Loan #{loan_id} cannot be repaid because it is already marked as {loan.get('status', 'unknown')}."
+                )
+            
+            logger.info(f"Processing repayment for loan: {loan}")
             
             # Check if repayment is late and calculate late fee if applicable
             current_date = datetime.datetime.now()
@@ -97,14 +135,11 @@ class RepayCommand(commands.Cog):
                 late_fee = round(loan["amount"] * 0.05)
                 loan["late_fee"] = late_fee
                 loan["total_repayment"] += late_fee
+                logger.info(f"Late fee applied: {late_fee}, new total: {loan['total_repayment']}")
             
             # If API integration is enabled, check balance and process payment
             if config.UNBELIEVABOAT["ENABLED"] and unbelievaboat:
                 try:
-                    # Use the current guild's ID instead of the config's fixed guild ID
-                    guild_id = str(interaction.guild.id)
-                    user_id = str(interaction.user.id)
-                    
                     logger.info(f"Checking balance for user {user_id} in guild {guild_id}")
                     
                     # Get user's current balance
@@ -119,10 +154,10 @@ class RepayCommand(commands.Cog):
                     logger.info(f"User balance: {user_balance.get('cash', 0)}, Required: {loan['total_repayment']}")
                     
                     # Check if user has enough currency
-                    if user_balance["cash"] < loan["total_repayment"]:
+                    if user_balance.get("cash", 0) < loan["total_repayment"]:
                         return await interaction.followup.send(
                             f"You don't have enough {config.UNBELIEVABOAT['CURRENCY_NAME']} to repay this loan. "
-                            f"You need {loan['total_repayment']} {config.UNBELIEVABOAT['CURRENCY_NAME']} but only have {user_balance['cash']}."
+                            f"You need {loan['total_repayment']} {config.UNBELIEVABOAT['CURRENCY_NAME']} but only have {user_balance.get('cash', 0)}."
                         )
                     
                     logger.info(f"Removing {loan['total_repayment']} from user {user_id} in guild {guild_id}")
@@ -133,7 +168,7 @@ class RepayCommand(commands.Cog):
                         user_id,
                         loan["total_repayment"],
                         f"Loan #{loan_id} repayment - {loan['amount']} {config.UNBELIEVABOAT['CURRENCY_NAME']} + "
-                        f"{loan['interest']} interest{' + ' + str(late_fee) + ' late fee' if not on_time else ''}"
+                        f"{loan['interest']} interest{' + ' + str(late_fee) + ' late fee' if late_fee > 0 else ''}"
                     )
                     
                     if not result:
@@ -143,12 +178,14 @@ class RepayCommand(commands.Cog):
                         )
                     
                     # Add UnbelievaBoat transaction info to the loan
-                    loan["unbelievaboat"] = {
+                    loan["unbelievaboat"] = loan.get("unbelievaboat", {})
+                    loan["unbelievaboat"].update({
                         "repayment_processed": True,
-                        "balance_after": result["cash"]
-                    }
+                        "balance_after": result.get("cash", 0),
+                        "repayment_time": datetime.datetime.now().isoformat()
+                    })
                     
-                    logger.info(f"Successfully processed repayment, new balance: {result['cash']}")
+                    logger.info(f"Successfully processed repayment, new balance: {result.get('cash', 0)}")
                 except Exception as error:
                     logger.error(f"UnbelievaBoat API error: {str(error)}")
                     return await interaction.followup.send(
@@ -158,6 +195,7 @@ class RepayCommand(commands.Cog):
             # Process repayment
             loan["status"] = "repaid"
             loan["repaid_date"] = datetime.datetime.now()
+            loan["repaid_by"] = str(interaction.user.id)
             
             # Ensure history array exists
             if "history" not in loan_database:
@@ -166,6 +204,7 @@ class RepayCommand(commands.Cog):
             # Move to history
             loan_database["history"].append(loan.copy())
             loan_database["loans"].pop(loan_index)
+            logger.info(f"Loan {loan_id} marked as repaid and moved to history")
             
             # Update credit score
             credit_change = 10 if on_time else -5
@@ -177,6 +216,7 @@ class RepayCommand(commands.Cog):
                 loan_database["credit_scores"][user_id] = 100  # Default score
             
             loan_database["credit_scores"][user_id] += credit_change
+            logger.info(f"Updated credit score for user {user_id}: {loan_database['credit_scores'][user_id]} (change: {credit_change})")
             
             # Create embed for repayment details
             embed = discord.Embed(
@@ -187,7 +227,11 @@ class RepayCommand(commands.Cog):
             embed.add_field(name="Loan ID", value=f"{loan_id}", inline=True)
             embed.add_field(name="Loan Amount", value=f"{loan['amount']} {config.UNBELIEVABOAT['CURRENCY_NAME']}", inline=True)
             embed.add_field(name="Interest Paid", value=f"{loan['interest']} {config.UNBELIEVABOAT['CURRENCY_NAME']}", inline=True)
-            embed.add_field(name="Total Paid", value=f"{loan['total_repayment']} {config.UNBELIEVABOAT['CURRENCY_NAME']}", inline=True)
+            
+            total_field = f"{loan['total_repayment']} {config.UNBELIEVABOAT['CURRENCY_NAME']}"
+            if late_fee > 0:
+                total_field += f" (including {late_fee} late fee)"
+            embed.add_field(name="Total Paid", value=total_field, inline=True)
             
             status_text = "✅ Paid on time" if on_time else f"⚠️ Paid late ({late_fee} {config.UNBELIEVABOAT['CURRENCY_NAME']} fee applied)"
             embed.add_field(name="Status", value=status_text, inline=True)
@@ -197,7 +241,7 @@ class RepayCommand(commands.Cog):
             embed.add_field(name="New Credit Score", value=f"{loan_database['credit_scores'][user_id]}", inline=True)
             
             # For API integration, add info about currency deduction
-            if config.UNBELIEVABOAT["ENABLED"] and loan.get("unbelievaboat"):
+            if config.UNBELIEVABOAT["ENABLED"] and loan.get("unbelievaboat", {}).get("repayment_processed"):
                 embed.add_field(
                     name="Currency Deducted",
                     value=f"✅ {loan['total_repayment']} {config.UNBELIEVABOAT['CURRENCY_NAME']} deducted from your balance",
@@ -205,24 +249,26 @@ class RepayCommand(commands.Cog):
                 )
                 embed.add_field(
                     name="Remaining Balance",
-                    value=f"{loan['unbelievaboat']['balance_after']} {config.UNBELIEVABOAT['CURRENCY_NAME']}",
+                    value=f"{loan['unbelievaboat'].get('balance_after', 'Unknown')} {config.UNBELIEVABOAT['CURRENCY_NAME']}",
                     inline=True
                 )
             
             # Send response
             await interaction.followup.send(embed=embed)
             
-            print(f"Loan #{loan_id} successfully repaid by {interaction.user}")
+            logger.info(f"Loan #{loan_id} successfully repaid by {interaction.user}")
             
         except Exception as error:
-            print(f"Error in repayment: {str(error)}")
+            logger.error(f"Error in repayment: {str(error)}")
+            import traceback
+            logger.error(traceback.format_exc())
             
             try:
                 await interaction.followup.send(
-                    "An error occurred while processing your repayment. Please try again later."
+                    f"An error occurred while processing your repayment: {str(error)}"
                 )
             except:
-                print("Failed to send error message")
+                logger.error("Failed to send error message")
 
     # Button handler for repayment
     @commands.Cog.listener()
@@ -233,36 +279,61 @@ class RepayCommand(commands.Cog):
         if not interaction.data["custom_id"].startswith("repay_"):
             return
             
+        logger.info(f"Received repay button interaction with custom_id: {interaction.data['custom_id']}")
+        
         # Parse the custom ID
-        parts = interaction.data["custom_id"].split("_")
-        user_id = parts[1]
-        loan_id = parts[2]
-        
-        # Verify the user is the loan owner
-        if str(interaction.user.id) != user_id:
-            return await interaction.response.send_message(
-                "You can only repay your own loans!",
-                ephemeral=True
-            )
-        
-        # Process the repayment
-        await interaction.response.defer(ephemeral=True)
-        
-        # Create a fake options object for the command
-        class FakeOptions:
-            def __init__(self, loan_id):
-                self.loan_id = loan_id
+        try:
+            parts = interaction.data["custom_id"].split("_")
+            if len(parts) < 3:
+                logger.error(f"Invalid custom_id format: {interaction.data['custom_id']}")
+                return await interaction.response.send_message(
+                    "Invalid repayment button. Please use the /repay command instead.",
+                    ephemeral=True
+                )
                 
-            def get_string(self, name):
-                if name == "loan_id":
-                    return self.loan_id
-                return None
-        
-        # Manually set up options on the interaction object
-        interaction.options = FakeOptions(loan_id)
-        
-        # Call the repay command with modified interaction
-        await self.repay(interaction, loan_id)
+            user_id = parts[1]
+            loan_id = parts[2]
+            
+            logger.info(f"Parsed button interaction: user_id={user_id}, loan_id={loan_id}")
+            
+            # Verify the user is the loan owner
+            if str(interaction.user.id) != user_id:
+                logger.warning(f"User {interaction.user.id} attempted to repay loan {loan_id} belonging to user {user_id}")
+                return await interaction.response.send_message(
+                    "You can only repay your own loans!",
+                    ephemeral=True
+                )
+            
+            # Process the repayment
+            await interaction.response.defer(ephemeral=True)
+            
+            # Create a fake options object for compatibility
+            class FakeOptions:
+                def __init__(self, loan_id):
+                    self.loan_id = loan_id
+                    
+                def get_string(self, name):
+                    if name == "loan_id":
+                        return self.loan_id
+                    return None
+                    
+            fake_options = FakeOptions(loan_id)
+            
+            # Call the repay command directly
+            await self.repay(interaction, loan_id)
+            
+        except Exception as e:
+            logger.error(f"Error processing repay button: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            
+            try:
+                await interaction.followup.send(
+                    f"An error occurred while processing your repayment: {str(e)}",
+                    ephemeral=True
+                )
+            except:
+                logger.error("Failed to send error message after button interaction")
 
 
 async def setup(bot):
