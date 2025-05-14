@@ -6,7 +6,9 @@ import os
 import logging
 import threading
 import socket
-from flask import Flask, jsonify
+import json
+from flask import Flask, jsonify, request
+import asyncio
 
 # Set up logging
 logging.basicConfig(
@@ -36,6 +38,85 @@ def api_status():
         "status": "online",
         "message": "API endpoint available"
     })
+
+# Diagnostic endpoint for UnbelievaBoat API
+@app.route('/check-unbelievaboat', methods=['GET'])
+def check_unbelievaboat():
+    try:
+        # Import here to avoid circular imports
+        import config
+        from unbelievaboat_integration import UnbelievaBoatAPI
+        
+        # Get guild_id and user_id from query parameters
+        guild_id = request.args.get('guild_id')
+        user_id = request.args.get('user_id')
+        
+        if not guild_id or not user_id:
+            return jsonify({
+                "status": "error",
+                "message": "Missing required parameters. Use ?guild_id=XXX&user_id=YYY"
+            }), 400
+            
+        # Create async function for testing
+        async def run_test():
+            # Create API client
+            api = UnbelievaBoatAPI(
+                api_key=config.UNBELIEVABOAT["API_KEY"],
+                port=None,  # Use default port
+                timeout=30
+            )
+            
+            try:
+                # Test connection
+                balance = await api.get_user_balance(guild_id, user_id)
+                
+                if balance:
+                    return {
+                        "status": "success",
+                        "message": "API connection successful",
+                        "data": {
+                            "balance": balance,
+                            "api_enabled": config.UNBELIEVABOAT["ENABLED"],
+                            "guild_id": guild_id,
+                            "user_id": user_id
+                        }
+                    }
+                else:
+                    return {
+                        "status": "error",
+                        "message": "Could not retrieve balance",
+                        "data": {
+                            "api_enabled": config.UNBELIEVABOAT["ENABLED"],
+                            "guild_id": guild_id,
+                            "user_id": user_id
+                        }
+                    }
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "message": f"API error: {str(e)}",
+                    "data": {
+                        "api_enabled": config.UNBELIEVABOAT["ENABLED"],
+                        "error": str(e)
+                    }
+                }
+            finally:
+                await api.close()
+                
+        # Run the async function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(run_test())
+        loop.close()
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error in check-unbelievaboat endpoint: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Server error: {str(e)}"
+        }), 500
 
 def is_port_in_use(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
