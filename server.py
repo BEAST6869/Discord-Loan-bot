@@ -1,12 +1,12 @@
 """
-Simple HTTP server to keep the service alive
+Simple HTTP server to keep the service alive and handle health checks
 """
 
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import os
-import threading
 import logging
+import threading
 import socket
+from flask import Flask, jsonify
 
 # Set up logging
 logging.basicConfig(
@@ -15,18 +15,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger("server")
 
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == '/health':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/plain')
-            self.end_headers()
-            self.wfile.write(b'OK')
-            logger.info("Health check request received")
-        else:
-            self.send_response(404)
-            self.end_headers()
-            logger.info(f"Invalid path requested: {self.path}")
+# Create Flask app
+app = Flask(__name__)
+
+# Health check endpoint
+@app.route('/health')
+def health_check():
+    logger.info("Health check request received")
+    return 'OK'
+
+# Root endpoint (similar to the Express example)
+@app.route('/')
+def hello_world():
+    return 'Discord Loan Bot is running!'
+
+# Test endpoint for UnbelievaBoat API
+@app.route('/api-status')
+def api_status():
+    return jsonify({
+        "status": "online",
+        "message": "API endpoint available"
+    })
 
 def is_port_in_use(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -43,13 +52,9 @@ def run_server():
         raise RuntimeError(f"Port {port} is already in use")
     
     try:
-        # Create server with explicit host and port
-        server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-        logger.info(f"Server created successfully, binding to 0.0.0.0:{port}")
-        
-        # Start the server
-        logger.info("Starting server...")
-        server.serve_forever()
+        # Start Flask app on the specified port and bind to all interfaces
+        logger.info(f"Starting Flask server on port {port}...")
+        app.run(host='0.0.0.0', port=port)
     except Exception as e:
         logger.error(f"Failed to start server: {e}")
         raise
