@@ -86,6 +86,10 @@ class UnbelievaBoatAPI:
         :return: User's balance information or None if error
         """
         try:
+            # Ensure guild_id and user_id are strings
+            guild_id = str(guild_id)
+            user_id = str(user_id)
+            
             logger.info(f"Getting balance for user {user_id} in guild {guild_id}")
             session = await self._ensure_session()
             
@@ -140,6 +144,10 @@ class UnbelievaBoatAPI:
         :return: Updated balance information or None if error
         """
         try:
+            # Ensure all inputs are properly typed
+            guild_id = str(guild_id)
+            user_id = str(user_id)
+            
             # Validate inputs
             if not guild_id or not user_id:
                 logger.error("Invalid guild_id or user_id")
@@ -219,6 +227,19 @@ class UnbelievaBoatAPI:
         :return: Updated balance information or None if error
         """
         try:
+            # Ensure all inputs are properly typed
+            guild_id = str(guild_id)
+            user_id = str(user_id)
+            
+            # Validate inputs
+            if not guild_id or not user_id:
+                logger.error("Invalid guild_id or user_id")
+                return None
+                
+            if not isinstance(amount, (int, float)) or amount <= 0:
+                logger.error(f"Invalid amount: {amount}")
+                return None
+                
             logger.info(f"Removing {amount} from user {user_id} in guild {guild_id}")
             session = await self._ensure_session()
             
@@ -233,33 +254,36 @@ class UnbelievaBoatAPI:
                 }
             ) as response:
                 status = response.status
+                response_text = await response.text()
                 
                 # Log response status
                 logger.info(f"Remove currency request status: {status}")
+                logger.info(f"Response body: {response_text}")
                 
                 # If 401 or 403, likely API token issue
                 if status == 401 or status == 403:
                     logger.error("API authentication error. Check your API token.")
-                    text = await response.text()
-                    logger.error(f"Error response: {text}")
+                    logger.error(f"Error response: {response_text}")
                     return None
                 
                 # If 404, likely guild or user not found
                 if status == 404:
                     logger.error(f"Guild {guild_id} or user {user_id} not found")
-                    text = await response.text()
-                    logger.error(f"Error response: {text}")
+                    logger.error(f"Error response: {response_text}")
                     return None
                 
                 # Check for other errors
                 if status >= 400:
-                    text = await response.text()
-                    logger.error(f"API error {status}: {text}")
+                    logger.error(f"API error {status}: {response_text}")
                     return None
                     
-                response_data = await response.json()
-                logger.info(f"Currency removed successfully. New balance: {response_data.get('cash', 'unknown')}")
-                return response_data
+                try:
+                    response_data = json.loads(response_text)
+                    logger.info(f"Currency removed successfully. New balance: {response_data.get('cash', 'unknown')}")
+                    return response_data
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse response as JSON: {response_text}")
+                    return None
         except asyncio.TimeoutError:
             logger.error(f"Request timed out after {self.timeout} seconds")
             return None
@@ -268,6 +292,8 @@ class UnbelievaBoatAPI:
             return None
         except Exception as error:
             logger.error(f"Error removing currency: {str(error)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
 
     async def get_leaderboard(self, guild_id, sort_by='total', limit=10):

@@ -119,6 +119,28 @@ def set_max_loan_amount(guild_id, amount):
     return True
 
 
+def set_max_repayment_days(guild_id, days):
+    """
+    Set the maximum repayment days for a guild
+    :param guild_id: Discord guild ID as string
+    :param days: Maximum repayment days as integer
+    """
+    guild_id = str(guild_id)  # Ensure it's a string
+    days = int(days)          # Ensure it's an integer
+    
+    # Ensure the guild exists in settings
+    if guild_id not in config.SERVER_SETTINGS:
+        config.SERVER_SETTINGS[guild_id] = {}
+    
+    # Update the max repayment days
+    config.SERVER_SETTINGS[guild_id]["max_repayment_days"] = days
+    
+    # Save the changes
+    save_settings()
+    
+    return True
+
+
 def get_captain_role(guild_id):
     """
     Get the captain role ID for a guild
@@ -139,6 +161,17 @@ def get_max_loan_amount(guild_id):
     guild_id = str(guild_id)  # Ensure it's a string
     guild_settings = get_guild_settings(guild_id)
     return guild_settings.get("max_loan_amount", 1000000)  # Default: 1,000,000
+
+
+def get_max_repayment_days(guild_id):
+    """
+    Get the maximum repayment days for a guild
+    :param guild_id: Discord guild ID as string
+    :return: Maximum repayment days as integer or default (7) if not set
+    """
+    guild_id = str(guild_id)  # Ensure it's a string
+    guild_settings = get_guild_settings(guild_id)
+    return guild_settings.get("max_repayment_days", 7)  # Default: 7 days
 
 
 def check_is_captain(guild_id, member):

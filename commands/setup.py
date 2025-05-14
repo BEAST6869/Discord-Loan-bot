@@ -105,6 +105,14 @@ class SetupCommand(commands.Cog):
                 inline=False
             )
             
+            # Maximum Repayment Days
+            max_days = settings.get("max_repayment_days", 7)
+            embed.add_field(
+                name="📅 Maximum Repayment Period",
+                value=f"{max_days} days",
+                inline=False
+            )
+            
             # UnbelievaBoat integration
             embed.add_field(
                 name="💰 Currency",
@@ -126,7 +134,7 @@ class SetupCommand(commands.Cog):
             )
             
             # Add a footer with instructions
-            embed.set_footer(text="Admins can change settings with /set_captain_role and /set_max_loan")
+            embed.set_footer(text="Admins can change settings with /set_captain_role, /set_max_loan, and /set_max_days")
             
             await interaction.response.send_message(embed=embed)
             
@@ -189,6 +197,61 @@ class SetupCommand(commands.Cog):
             logger.error(f"Error setting maximum loan amount: {str(error)}")
             await interaction.response.send_message(
                 f"There was an error setting the maximum loan amount: {str(error)}",
+                ephemeral=True
+            )
+            
+    @app_commands.command(name="set_max_days", description="Set the maximum repayment period for loans (Admin only)")
+    @app_commands.describe(
+        days="The maximum number of days allowed for loan repayment (between 1 and 30)"
+    )
+    async def set_max_days(self, interaction: discord.Interaction, days: int):
+        # Check if the user has admin permissions
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message(
+                "You need administrator permissions to use this command.",
+                ephemeral=True
+            )
+        
+        # Validate the days
+        if days < 1 or days > 30:
+            return await interaction.response.send_message(
+                "The maximum repayment period must be between 1 and 30 days.",
+                ephemeral=True
+            )
+        
+        try:
+            # Set the maximum repayment days
+            guild_id = str(interaction.guild.id)
+            
+            server_settings.set_max_repayment_days(guild_id, days)
+            
+            # Respond with confirmation
+            embed = discord.Embed(
+                title="✅ Maximum Repayment Period Set",
+                description=f"The maximum repayment period has been set to {days} days.",
+                color=0x00FF00
+            )
+            
+            embed.add_field(
+                name="How it works",
+                value=f"Members can now request loans with repayment periods up to {days} days.",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="To change",
+                value="Run this command again with a different number of days.",
+                inline=False
+            )
+            
+            await interaction.response.send_message(embed=embed)
+            
+            logger.info(f"Maximum repayment days set to {days} in guild {interaction.guild.name} (ID: {guild_id})")
+            
+        except Exception as error:
+            logger.error(f"Error setting maximum repayment days: {str(error)}")
+            await interaction.response.send_message(
+                f"There was an error setting the maximum repayment period: {str(error)}",
                 ephemeral=True
             )
 

@@ -103,14 +103,20 @@ class RepayCommand(commands.Cog):
                 try:
                     # Use the current guild's ID instead of the config's fixed guild ID
                     guild_id = str(interaction.guild.id)
+                    user_id = str(interaction.user.id)
+                    
+                    logger.info(f"Checking balance for user {user_id} in guild {guild_id}")
                     
                     # Get user's current balance
                     user_balance = await unbelievaboat.get_user_balance(guild_id, user_id)
                     
                     if not user_balance:
+                        logger.error(f"Unable to retrieve balance for user {user_id} in guild {guild_id}")
                         return await interaction.followup.send(
                             "Unable to check your balance with UnbelievaBoat. Please try again or contact an admin."
                         )
+                    
+                    logger.info(f"User balance: {user_balance.get('cash', 0)}, Required: {loan['total_repayment']}")
                     
                     # Check if user has enough currency
                     if user_balance["cash"] < loan["total_repayment"]:
@@ -118,6 +124,8 @@ class RepayCommand(commands.Cog):
                             f"You don't have enough {config.UNBELIEVABOAT['CURRENCY_NAME']} to repay this loan. "
                             f"You need {loan['total_repayment']} {config.UNBELIEVABOAT['CURRENCY_NAME']} but only have {user_balance['cash']}."
                         )
+                    
+                    logger.info(f"Removing {loan['total_repayment']} from user {user_id} in guild {guild_id}")
                     
                     # Remove the repayment amount from user's balance
                     result = await unbelievaboat.remove_currency(
@@ -129,6 +137,7 @@ class RepayCommand(commands.Cog):
                     )
                     
                     if not result:
+                        logger.error(f"Failed to remove currency from user {user_id} in guild {guild_id}")
                         return await interaction.followup.send(
                             "There was an error processing your repayment with UnbelievaBoat. Please try again or contact an admin."
                         )
@@ -138,8 +147,10 @@ class RepayCommand(commands.Cog):
                         "repayment_processed": True,
                         "balance_after": result["cash"]
                     }
+                    
+                    logger.info(f"Successfully processed repayment, new balance: {result['cash']}")
                 except Exception as error:
-                    print(f"UnbelievaBoat API error: {str(error)}")
+                    logger.error(f"UnbelievaBoat API error: {str(error)}")
                     return await interaction.followup.send(
                         f"There was an error processing your repayment: {str(error)}"
                     )

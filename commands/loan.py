@@ -138,6 +138,9 @@ class LoanCommand(commands.Cog):
             
         # Get the maximum loan amount for this server
         max_loan_amount = server_settings.get_max_loan_amount(guild_id)
+        
+        # Get the maximum repayment days for this server
+        max_repayment_days = server_settings.get_max_repayment_days(guild_id)
             
         # Validate input
         if amount < 1000:
@@ -153,9 +156,10 @@ class LoanCommand(commands.Cog):
                 ephemeral=True
             )
         
-        if days < 1 or days > 7:
+        if days < 1 or days > max_repayment_days:
             return await interaction.response.send_message(
-                "Loan duration must be between 1 and 7 days.",
+                f"Loan duration must be between 1 and {max_repayment_days} days. "
+                f"This is the maximum repayment period set by the server administrator.",
                 ephemeral=True
             )
         
@@ -507,10 +511,16 @@ class LoanCommand(commands.Cog):
         # Process UnbelievaBoat integration if enabled
         if config.UNBELIEVABOAT["ENABLED"] and unbelievaboat:
             try:
+                # Ensure guild_id is a string
+                guild_id_str = str(guild_id)
+                user_id_str = str(user_id)
+                
+                logger.info(f"Attempting to add currency for loan #{loan_id} to user {user_id_str} in guild {guild_id_str}")
+                
                 # Try the API call
                 result = await unbelievaboat.add_currency(
-                    guild_id,
-                    user_id,
+                    guild_id_str,
+                    user_id_str,
                     loan_request["amount"],
                     f"Loan #{loan_id} - {loan_request['amount']} {config.UNBELIEVABOAT['CURRENCY_NAME']} with {loan_request['interest']} interest due in {loan_request['days']} days"
                 )
@@ -521,12 +531,13 @@ class LoanCommand(commands.Cog):
                         "transaction_processed": True,
                         "balance": result["cash"]
                     }
+                    logger.info(f"Successfully added {loan_request['amount']} currency to user {user_id_str}")
                 else:
-                    print(f"UnbelievaBoat API returned None for add_currency call. Guild ID: {guild_id}, User ID: {user_id}, Amount: {loan_request['amount']}")
+                    logger.error(f"UnbelievaBoat API returned None for add_currency call. Guild ID: {guild_id_str}, User ID: {user_id_str}, Amount: {loan_request['amount']}")
             except Exception as error:
-                print(f"UnbelievaBoat API error during loan approval: {str(error)}")
+                logger.error(f"UnbelievaBoat API error during loan approval: {str(error)}")
                 import traceback
-                traceback.print_exc()
+                logger.error(traceback.format_exc())
         
         # Try to notify the user
         try:
@@ -810,10 +821,16 @@ class LoanCommand(commands.Cog):
             # Process UnbelievaBoat integration if enabled
             if config.UNBELIEVABOAT["ENABLED"] and unbelievaboat:
                 try:
+                    # Ensure guild_id is a string
+                    guild_id_str = str(guild_id)
+                    user_id_str = str(user_id)
+                    
+                    logger.info(f"Attempting to add currency for loan #{loan_id} to user {user_id_str} in guild {guild_id_str}")
+                    
                     # Try the API call
                     result = await unbelievaboat.add_currency(
-                        guild_id,
-                        user_id,
+                        guild_id_str,
+                        user_id_str,
                         loan_request["amount"],
                         f"Loan #{loan_id} - {loan_request['amount']} {config.UNBELIEVABOAT['CURRENCY_NAME']} with {loan_request['interest']} interest due in {loan_request['days']} days"
                     )
@@ -824,12 +841,13 @@ class LoanCommand(commands.Cog):
                             "transaction_processed": True,
                             "balance": result["cash"]
                         }
+                        logger.info(f"Successfully added {loan_request['amount']} currency to user {user_id_str}")
                     else:
-                        print(f"UnbelievaBoat API returned None for add_currency call. Guild ID: {guild_id}, User ID: {user_id}, Amount: {loan_request['amount']}")
+                        logger.error(f"UnbelievaBoat API returned None for add_currency call. Guild ID: {guild_id_str}, User ID: {user_id_str}, Amount: {loan_request['amount']}")
                 except Exception as error:
-                    print(f"UnbelievaBoat API error during loan approval: {str(error)}")
+                    logger.error(f"UnbelievaBoat API error during loan approval: {str(error)}")
                     import traceback
-                    traceback.print_exc()
+                    logger.error(traceback.format_exc())
             
             # Try to notify the user
             try:
