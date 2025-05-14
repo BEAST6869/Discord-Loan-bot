@@ -3,9 +3,13 @@ services:
     name: discord-loan-bot
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python run_bot.py
+    # You can use either direct bot start or watchdog depending on your preference
+    # startCommand: python bot.py  # Direct start of the bot
+    startCommand: python run_bot.py  # Start with watchdog for automatic restarts
     envVars:
       - key: DISCORD_TOKEN
         sync: false
       - key: UNBELIEVABOAT_API_KEY
+        sync: false
+      - key: CLIENT_ID
         sync: false 
