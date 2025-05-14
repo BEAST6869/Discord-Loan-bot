@@ -168,11 +168,11 @@ def get_max_repayment_days(guild_id):
     """
     Get the maximum repayment days for a guild
     :param guild_id: Discord guild ID as string
-    :return: Maximum repayment days as integer or default (7) if not set
+    :return: Maximum repayment days as integer or default (365) if not set
     """
     guild_id = str(guild_id)  # Ensure it's a string
     guild_settings = get_guild_settings(guild_id)
-    return guild_settings.get("max_repayment_days", 7)  # Default: 7 days
+    return guild_settings.get("max_repayment_days", 365)  # Default: 365 days (1 year)
 
 
 def check_is_captain(guild_id, member):

@@ -202,7 +202,7 @@ class SetupCommand(commands.Cog):
             
     @app_commands.command(name="set_max_days", description="Set the maximum repayment period for loans (Admin only)")
     @app_commands.describe(
-        days="The maximum number of days allowed for loan repayment (between 1 and 30)"
+        days="The maximum number of days allowed for loan repayment (minimum 1 day)"
     )
     async def set_max_days(self, interaction: discord.Interaction, days: int):
         # Check if the user has admin permissions
@@ -212,10 +212,10 @@ class SetupCommand(commands.Cog):
                 ephemeral=True
             )
         
-        # Validate the days
-        if days < 1 or days > 30:
+        # Validate the days - only enforce a minimum
+        if days < 1:
             return await interaction.response.send_message(
-                "The maximum repayment period must be between 1 and 30 days.",
+                "The maximum repayment period must be at least 1 day.",
                 ephemeral=True
             )
         

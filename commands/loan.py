@@ -158,8 +158,8 @@ class LoanCommand(commands.Cog):
         
         if days < 1 or days > max_repayment_days:
             return await interaction.response.send_message(
-                f"Loan duration must be between 1 and {max_repayment_days} days. "
-                f"This is the maximum repayment period set by the server administrator.",
+                f"Loan duration must be at least 1 day and cannot exceed {max_repayment_days} days. "
+                f"The maximum repayment period is set by the server administrator.",
                 ephemeral=True
             )
         
