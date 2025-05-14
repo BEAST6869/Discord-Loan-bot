@@ -479,6 +479,9 @@ class LoanCommand(commands.Cog):
             
         await interaction.response.defer()
         
+        # Initialize manual_needed variable
+        manual_needed = False
+        
         # Get loan database
         loan_database = self.bot.loan_database
         
@@ -828,6 +831,9 @@ class LoanCommand(commands.Cog):
             
             # Process the approval directly instead of calling the command
             await interaction.response.defer()
+            
+            # Initialize manual_needed variable
+            manual_needed = False
             
             # Get loan database
             loan_database = self.bot.loan_database
