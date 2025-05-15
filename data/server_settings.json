@@ -1,11 +1,12 @@
 {
   "1294261720440635434": {
-    "captain_role_id": "1371829866256797789",
-    "max_loan_amount": 1000000000,
-    "max_repayment_days": 365,
-    "admin_channel": "1351637782161784898",
+    "captain_role_id": "1367029394698407967",
+    "max_loan_amount": 50000000,
+    "max_repayment_days": 30,
+    "admin_channel": "1296091984888336414",
     "approval_roles": [
-      "1371859211465527416"
+      "1346791214929940480",
+      "1295443092836581488"
     ]
   }
 }

@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 import sys
 import os
+import config
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

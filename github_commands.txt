@@ -1,0 +1,19 @@
+# After creating a new repository on GitHub, run these commands to push your code:
+
+# Replace YOUR_USERNAME with your GitHub username and REPO_NAME with your repository name
+git remote add origin https://github.com/YOUR_USERNAME/REPO_NAME.git
+git branch -M main
+git push -u origin main
+
+# If you want to use SSH instead of HTTPS:
+# git remote add origin git@github.com:YOUR_USERNAME/REPO_NAME.git
+# git branch -M main
+# git push -u origin main
+
+# If prompted for GitHub credentials, you'll need to create a Personal Access Token:
+# 1. Go to GitHub → Settings → Developer settings → Personal access tokens → Generate new token
+# 2. Give it a name, set an expiration, and select at least the 'repo' scope
+# 3. Use this token as your password when prompted (your username remains the same)
+
+# If you want to avoid entering credentials repeatedly, you can set up credential caching:
+# git config --global credential.helper cache 
