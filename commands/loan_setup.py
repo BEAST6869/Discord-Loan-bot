@@ -221,6 +221,138 @@ class LoanSetupCommand(commands.Cog):
         # Send the embed
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @app_commands.command(name="set_captain_role", description="Set which role is allowed to request loans")
+    @app_commands.describe(
+        role="The role that can request loans (captains)"
+    )
+    async def set_captain_role(self, interaction: discord.Interaction, role: discord.Role):
+        # Check if the user has admin permissions
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message(
+                "You don't have permission to use this command. This command is for administrators only.",
+                ephemeral=True
+            )
+            
+        # Save the captain role ID
+        guild_id = str(interaction.guild.id)
+        server_settings.set_captain_role(guild_id, str(role.id))
+        
+        await interaction.response.send_message(
+            f"✅ The captain role has been set to {role.mention}. "
+            f"Members with this role can now request loans using the `/loan` command.",
+            ephemeral=True
+        )
+
+    @app_commands.command(name="set_max_loan_amount", description="Set the maximum loan amount captains can request")
+    @app_commands.describe(
+        amount=f"Maximum loan amount in {config.UNBELIEVABOAT['CURRENCY_NAME']}"
+    )
+    async def set_max_loan_amount(self, interaction: discord.Interaction, amount: int):
+        # Check if the user has admin permissions
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message(
+                "You don't have permission to use this command. This command is for administrators only.",
+                ephemeral=True
+            )
+            
+        # Validate amount
+        if amount < 1000:
+            return await interaction.response.send_message(
+                f"Maximum loan amount must be at least 1,000 {config.UNBELIEVABOAT['CURRENCY_NAME']}.",
+                ephemeral=True
+            )
+            
+        # Save the max loan amount
+        guild_id = str(interaction.guild.id)
+        server_settings.set_max_loan_amount(guild_id, amount)
+        
+        await interaction.response.send_message(
+            f"✅ The maximum loan amount has been set to {amount:,} {config.UNBELIEVABOAT['CURRENCY_NAME']}.",
+            ephemeral=True
+        )
+
+    @app_commands.command(name="set_max_repayment_days", description="Set the maximum number of days allowed for loan repayment")
+    @app_commands.describe(
+        days="Maximum number of days for loan repayment (use 9999 for unlimited)"
+    )
+    async def set_max_repayment_days(self, interaction: discord.Interaction, days: int):
+        # Check if the user has admin permissions
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message(
+                "You don't have permission to use this command. This command is for administrators only.",
+                ephemeral=True
+            )
+            
+        # Validate days
+        if days < 1:
+            return await interaction.response.send_message(
+                "Maximum repayment days must be at least 1.",
+                ephemeral=True
+            )
+            
+        # Save the max repayment days
+        guild_id = str(interaction.guild.id)
+        server_settings.set_max_repayment_days(guild_id, days)
+        
+        # Create appropriate message based on value
+        if days >= 9999:
+            message = "✅ The maximum repayment period has been set to unlimited days."
+        else:
+            message = f"✅ The maximum repayment period has been set to {days} days."
+        
+        await interaction.response.send_message(
+            message,
+            ephemeral=True
+        )
+    
+    @app_commands.command(name="set_installment_enabled", description="Enable or disable installment payments for loans")
+    @app_commands.describe(
+        enabled="Whether installment payments are enabled (default: True)"
+    )
+    async def set_installment_enabled(self, interaction: discord.Interaction, enabled: bool = True):
+        # Check if the user has admin permissions
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message(
+                "You don't have permission to use this command. This command is for administrators only.",
+                ephemeral=True
+            )
+            
+        # Save the installment enabled setting
+        guild_id = str(interaction.guild.id)
+        server_settings.set_installment_enabled(guild_id, enabled)
+        
+        await interaction.response.send_message(
+            f"✅ Installment payments for loans have been {'enabled' if enabled else 'disabled'}.",
+            ephemeral=True
+        )
+    
+    @app_commands.command(name="set_min_installment_percent", description="Set the minimum installment percentage for loans")
+    @app_commands.describe(
+        percent="Minimum percentage of loan that must be paid in each installment (1-100)"
+    )
+    async def set_min_installment_percent(self, interaction: discord.Interaction, percent: int):
+        # Check if the user has admin permissions
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message(
+                "You don't have permission to use this command. This command is for administrators only.",
+                ephemeral=True
+            )
+            
+        # Validate percent
+        if percent < 1 or percent > 100:
+            return await interaction.response.send_message(
+                "Minimum installment percentage must be between 1 and 100.",
+                ephemeral=True
+            )
+            
+        # Save the min installment percentage
+        guild_id = str(interaction.guild.id)
+        server_settings.set_min_installment_percent(guild_id, percent)
+        
+        await interaction.response.send_message(
+            f"✅ The minimum installment percentage has been set to {percent}% of the total loan amount.",
+            ephemeral=True
+        )
 
 async def setup(bot):
     await bot.add_cog(LoanSetupCommand(bot)) 

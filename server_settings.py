@@ -141,6 +141,56 @@ def set_max_repayment_days(guild_id, days):
     return True
 
 
+def set_installment_enabled(guild_id, enabled):
+    """
+    Set whether installment payments are enabled for a guild
+    :param guild_id: Discord guild ID as string
+    :param enabled: Boolean indicating if installments are enabled
+    """
+    guild_id = str(guild_id)  # Ensure it's a string
+    enabled = bool(enabled)   # Ensure it's a boolean
+    
+    # Ensure the guild exists in settings
+    if guild_id not in config.SERVER_SETTINGS:
+        config.SERVER_SETTINGS[guild_id] = {}
+    
+    # Update the installment enabled setting
+    config.SERVER_SETTINGS[guild_id]["installment_enabled"] = enabled
+    
+    # Save the changes
+    save_settings()
+    
+    return True
+
+
+def set_min_installment_percent(guild_id, percent):
+    """
+    Set the minimum installment percentage for a guild
+    :param guild_id: Discord guild ID as string
+    :param percent: Minimum installment percentage as integer (1-100)
+    """
+    guild_id = str(guild_id)  # Ensure it's a string
+    percent = int(percent)    # Ensure it's an integer
+    
+    # Ensure percentage is in valid range
+    if percent < 1:
+        percent = 1
+    if percent > 100:
+        percent = 100
+    
+    # Ensure the guild exists in settings
+    if guild_id not in config.SERVER_SETTINGS:
+        config.SERVER_SETTINGS[guild_id] = {}
+    
+    # Update the min installment percentage
+    config.SERVER_SETTINGS[guild_id]["min_installment_percent"] = percent
+    
+    # Save the changes
+    save_settings()
+    
+    return True
+
+
 def get_captain_role(guild_id):
     """
     Get the captain role ID for a guild
@@ -173,6 +223,28 @@ def get_max_repayment_days(guild_id):
     guild_id = str(guild_id)  # Ensure it's a string
     guild_settings = get_guild_settings(guild_id)
     return guild_settings.get("max_repayment_days", 365)  # Default: 365 days (1 year)
+
+
+def get_installment_enabled(guild_id):
+    """
+    Check if installment payments are enabled for a guild
+    :param guild_id: Discord guild ID as string
+    :return: Boolean indicating if installments are enabled
+    """
+    guild_id = str(guild_id)  # Ensure it's a string
+    guild_settings = get_guild_settings(guild_id)
+    return guild_settings.get("installment_enabled", True)  # Default: Enabled
+
+
+def get_min_installment_percent(guild_id):
+    """
+    Get the minimum installment percentage for a guild
+    :param guild_id: Discord guild ID as string
+    :return: Minimum installment percentage as integer
+    """
+    guild_id = str(guild_id)  # Ensure it's a string
+    guild_settings = get_guild_settings(guild_id)
+    return guild_settings.get("min_installment_percent", 10)  # Default: 10%
 
 
 def check_is_captain(guild_id, member):

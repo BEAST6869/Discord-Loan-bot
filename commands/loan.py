@@ -119,7 +119,13 @@ class LoanCommand(commands.Cog):
         embed.add_field(name="Credit Score", value=f"{credit_score}", inline=True)
         embed.add_field(name="Late Fee", value="5% of loan amount", inline=True)
         
-        embed.set_footer(text=f"Use /repay {loan_id} to repay this loan")
+        # Add installment information if enabled
+        if loan.get("installment_enabled", False):
+            embed.add_field(name="Installments", value="Enabled", inline=True)
+            min_payment = loan.get("min_installment_amount", 0)
+            embed.add_field(name="Minimum Installment", value=f"{min_payment} {config.UNBELIEVABOAT['CURRENCY_NAME']}", inline=True)
+        
+        embed.set_footer(text=f"Use /repay {loan_id} [amount] to repay this loan")
         
         return embed
     
@@ -140,9 +146,10 @@ class LoanCommand(commands.Cog):
     @app_commands.command(name="loan", description="Request a loan for your crew")
     @app_commands.describe(
         amount=f"The amount of {config.UNBELIEVABOAT['CURRENCY_NAME']} to borrow",
-        days="Number of days to repay the loan"
+        days="Number of days to repay the loan",
+        installments="Enable repayment in installments (default: True)"
     )
-    async def loan(self, interaction: discord.Interaction, amount: int, days: int):
+    async def loan(self, interaction: discord.Interaction, amount: int, days: int, installments: bool = True):
         # Check if the user has the captain role
         guild_id = str(interaction.guild.id)
         if not server_settings.check_is_captain(guild_id, interaction.user):
@@ -169,7 +176,12 @@ class LoanCommand(commands.Cog):
         
         # Get the maximum repayment days for this server
         max_repayment_days = server_settings.get_max_repayment_days(guild_id)
-            
+        
+        # Check if installments are enabled for this server
+        installment_enabled = server_settings.get_installment_enabled(guild_id)
+        if installments and not installment_enabled:
+            installments = False
+        
         # Validate input
         if amount < 1000:
             return await interaction.response.send_message(
@@ -238,6 +250,19 @@ class LoanCommand(commands.Cog):
             "guild_id": guild_id
         }
         
+        # Add installment info if enabled
+        if installments and installment_enabled:
+            # Get minimum installment percentage for this guild
+            min_installment_percent = server_settings.get_min_installment_percent(guild_id)
+            min_installment_amount = max(1000, round(total_repayment * (min_installment_percent / 100)))
+            
+            loan_request["installment_enabled"] = True
+            loan_request["min_installment_percent"] = min_installment_percent
+            loan_request["min_installment_amount"] = min_installment_amount
+            loan_request["amount_repaid"] = 0
+        else:
+            loan_request["installment_enabled"] = False
+        
         # Save to database
         if "loan_requests" not in loan_database:
             loan_database["loan_requests"] = []
@@ -264,6 +289,11 @@ class LoanCommand(commands.Cog):
         
         embed.add_field(name="Credit Score", value=f"{credit_score}", inline=True)
         embed.add_field(name="Late Fee", value="5% of loan amount", inline=True)
+        
+        # Add installment information if enabled
+        if installments and installment_enabled:
+            embed.add_field(name="Installments", value="Enabled", inline=True)
+            embed.add_field(name="Minimum Installment", value=f"{min_installment_amount} {config.UNBELIEVABOAT['CURRENCY_NAME']} ({min_installment_percent}%)", inline=True)
         
         # Add status field
         embed.add_field(name="Status", value="⏳ Pending Admin Approval", inline=False)
@@ -308,6 +338,11 @@ class LoanCommand(commands.Cog):
             admin_embed.add_field(name="Amount", value=f"{amount} {config.UNBELIEVABOAT['CURRENCY_NAME']}", inline=True)
             admin_embed.add_field(name="Duration", value=f"{days} days", inline=True)
             admin_embed.add_field(name="Requested By", value=f"{interaction.user.display_name} ({interaction.user.id})", inline=False)
+            
+            # Add installment information if enabled
+            if installments and installment_enabled:
+                admin_embed.add_field(name="Installments", value="Enabled", inline=True)
+                admin_embed.add_field(name="Min. Installment", value=f"{loan_request['min_installment_amount']} {config.UNBELIEVABOAT['CURRENCY_NAME']} ({loan_request['min_installment_percent']}%)", inline=True)
             
             # Create approval/denial buttons
             approve_button = discord.ui.Button(
