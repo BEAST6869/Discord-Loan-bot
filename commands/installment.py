@@ -44,6 +44,10 @@ import manual_unbelievaboat as manual_integration
 class InstallmentCommand(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        # Add the missing properties for connection configuration
+        self.max_connections = 10
+        self.ssl_verify = True
+        self.session = None
         
     def _parse_datetime(self, dt_value):
         """Helper to parse datetime values from database that might be strings"""
@@ -72,11 +76,17 @@ class InstallmentCommand(commands.Cog):
     async def pay_installment(self, interaction: discord.Interaction, loan_id: str, amount: int):
         """Command to make an installment payment toward a loan"""
         try:
-            # Defer the reply first to prevent interaction timeout
-            await interaction.response.defer()
+            # Check if interaction is already responded to
+            if interaction.response.is_done():
+                logger.warning("Interaction already acknowledged, using followup instead")
+                send_message = interaction.followup.send
+            else:
+                # Defer the reply first to prevent interaction timeout
+                await interaction.response.defer()
+                send_message = interaction.followup.send
             
             if not loan_id:
-                return await interaction.followup.send(
+                return await send_message(
                     "Please provide a valid loan ID."
                 )
             
@@ -108,7 +118,7 @@ class InstallmentCommand(commands.Cog):
             
             if loan_index == -1:
                 logger.warning(f"Loan not found. ID: {loan_id}, User ID: {user_id}")
-                return await interaction.followup.send(
+                return await send_message(
                     f"Loan #{loan_id} not found or you are not the borrower of this loan. Please check the loan ID and try again."
                 )
             
@@ -117,14 +127,14 @@ class InstallmentCommand(commands.Cog):
             # Check if loan is already repaid
             if loan.get("status") not in ["active", "active_partial"]:
                 logger.warning(f"Attempted to pay installment for loan #{loan_id} with status: {loan.get('status')}")
-                return await interaction.followup.send(
+                return await send_message(
                     f"Loan #{loan_id} cannot receive installment payments because it is marked as {loan.get('status', 'unknown')}."
                 )
             
             # Check if installments are enabled for this loan
             if not loan.get("installment_enabled", False):
                 logger.warning(f"Attempted to pay installment for non-installment loan #{loan_id}")
-                return await interaction.followup.send(
+                return await send_message(
                     f"Loan #{loan_id} does not support installment payments. Please use `/repay {loan_id}` to repay the full amount."
                 )
             
@@ -155,7 +165,7 @@ class InstallmentCommand(commands.Cog):
             min_installment = loan.get("min_installment_amount", 1000)
             if amount < min_installment and amount < remaining_balance:
                 logger.warning(f"Installment amount too small. Provided: {amount}, Minimum: {min_installment}")
-                return await interaction.followup.send(
+                return await send_message(
                     f"Installment amount is too small. The minimum installment for this loan is "
                     f"{min_installment} {config.UNBELIEVABOAT['CURRENCY_NAME']} or the remaining balance."
                 )
@@ -181,7 +191,7 @@ class InstallmentCommand(commands.Cog):
                     
                     if not user_balance:
                         logger.error(f"Unable to retrieve balance for user {user_id} in guild {guild_id}")
-                        return await interaction.followup.send(
+                        return await send_message(
                             "Unable to check your balance with UnbelievaBoat. Please try again or contact an admin."
                         )
                     
@@ -189,7 +199,7 @@ class InstallmentCommand(commands.Cog):
                     
                     # Check if user has enough currency
                     if user_balance.get("cash", 0) < payment_amount:
-                        return await interaction.followup.send(
+                        return await send_message(
                             f"You don't have enough {config.UNBELIEVABOAT['CURRENCY_NAME']} to make this payment. "
                             f"You need {payment_amount} {config.UNBELIEVABOAT['CURRENCY_NAME']} but only have {user_balance.get('cash', 0)}."
                         )
@@ -212,7 +222,7 @@ class InstallmentCommand(commands.Cog):
                     
                     if not result:
                         logger.error(f"Failed to remove currency from user {user_id} in guild {guild_id}")
-                        return await interaction.followup.send(
+                        return await send_message(
                             "There was an error processing your payment with UnbelievaBoat. Please try again or contact an admin."
                         )
                     
@@ -299,7 +309,7 @@ class InstallmentCommand(commands.Cog):
                         embed.set_footer(text="Your loan has been fully repaid. Thank you!")
                     
                     # Send response
-                    await interaction.followup.send(embed=embed)
+                    await send_message(embed=embed)
                     
                     logger.info(f"Installment payment for Loan #{loan_id} successfully processed")
                     
@@ -309,7 +319,7 @@ class InstallmentCommand(commands.Cog):
                     logger.error(traceback.format_exc())
                     
                     try:
-                        await interaction.followup.send(
+                        await send_message(
                             f"An error occurred while processing your payment: {str(error)}"
                         )
                     except:
@@ -382,7 +392,7 @@ class InstallmentCommand(commands.Cog):
                     embed.set_footer(text="Your loan has been fully repaid. Thank you!")
                 
                 # Send response
-                await interaction.followup.send(embed=embed)
+                await send_message(embed=embed)
                 
                 # If manual mode and API is not enabled, give instructions
                 if manual_integration:
@@ -391,7 +401,7 @@ class InstallmentCommand(commands.Cog):
                         payment_amount
                     )
                     
-                    await interaction.followup.send(
+                    await send_message(
                         content="Please follow these steps to complete your payment:",
                         embed=instructions_embed
                     )
@@ -400,191 +410,237 @@ class InstallmentCommand(commands.Cog):
             logger.error(f"Error in pay_installment command: {e}")
             import traceback
             logger.error(traceback.format_exc())
-            await interaction.followup.send(
+            await send_message(
                 "There was an error processing your installment payment. Please try again or contact an admin."
             )
             
     @app_commands.command(name="pending_payments", description="View all your pending loan installments")
     async def pending_payments(self, interaction: discord.Interaction):
         """Command to view all loans with pending installment payments"""
-        # Defer the reply first to prevent interaction timeout
-        await interaction.response.defer()
-        
-        user_id = str(interaction.user.id)
-        guild_id = str(interaction.guild.id)
-        
-        # Get loan database from bot
-        loan_database = self.bot.loan_database
-        
-        # Find the user's active loans with installment payments
-        installment_loans = []
-        
-        if "loans" in loan_database and loan_database["loans"]:
-            for loan in loan_database["loans"]:
-                if (loan and loan.get("user_id") == user_id and 
-                    loan.get("guild_id") == guild_id and 
-                    (loan.get("status") == "active" or loan.get("status") == "active_partial") and
-                    loan.get("installment_enabled", False)):
-                    installment_loans.append(loan)
-        
-        if not installment_loans:
-            return await interaction.followup.send(
-                "You don't have any active loans with pending installment payments.",
-                ephemeral=True
-            )
-        
-        # Create embed for installment loan details
-        embed = discord.Embed(
-            title="💳 Your Installment Loans",
-            description=f"You have {len(installment_loans)} active installment loans with pending payments.",
-            color=0x0099FF
-        )
-        
-        for loan in installment_loans:
-            loan_id = loan.get("id", "Unknown")
-            amount = loan.get("amount", 0)
-            total_repayment = loan.get("total_repayment", 0)
-            due_date = self._parse_datetime(loan.get("due_date", datetime.datetime.now()))
-            
-            # Get installment details
-            amount_repaid = loan.get("amount_repaid", 0)
-            remaining_balance = total_repayment - amount_repaid
-            min_payment = loan.get("min_installment_amount", 1000)
-            
-            # Format the due date as a Discord timestamp
-            timestamp = int(due_date.timestamp())
-            
-            # Determine if loan is late
-            is_late = datetime.datetime.now() > due_date
-            status = "**OVERDUE - PAYMENT REQUIRED**" if is_late else ("Partially Repaid" if loan.get("status") == "active_partial" else "Awaiting First Payment")
-            
-            # Get payment progress
-            if amount_repaid > 0:
-                progress = int((amount_repaid / total_repayment) * 10)
-                progress_bar = "▰" * progress + "▱" * (10 - progress)
-                percent = int((amount_repaid / total_repayment) * 100)
-                progress_text = f"{progress_bar} {percent}%"
+        try:
+            # Check if interaction is already responded to
+            if interaction.response.is_done():
+                logger.warning("Interaction already acknowledged, using followup instead")
+                send_message = interaction.followup.send
             else:
-                progress_text = "No payments made yet"
+                # Defer the reply first to prevent interaction timeout
+                await interaction.response.defer()
+                send_message = interaction.followup.send
             
-            # Create field value with detailed loan info
-            field_value = (
-                f"**Original Amount:** {amount} {config.UNBELIEVABOAT['CURRENCY_NAME']}\n"
-                f"**Total Repayment:** {total_repayment} {config.UNBELIEVABOAT['CURRENCY_NAME']}\n"
-                f"**Amount Repaid:** {amount_repaid} {config.UNBELIEVABOAT['CURRENCY_NAME']}\n"
-                f"**Remaining Balance:** {remaining_balance} {config.UNBELIEVABOAT['CURRENCY_NAME']}\n"
-                f"**Minimum Payment:** {min_payment} {config.UNBELIEVABOAT['CURRENCY_NAME']}\n"
-                f"**Due Date:** <t:{timestamp}:F>\n"
-                f"**Status:** {status}\n"
-                f"**Progress:** {progress_text}\n\n"
-                f"Use `/pay_installment {loan_id} [amount]` to make a payment."
+            user_id = str(interaction.user.id)
+            guild_id = str(interaction.guild.id)
+            
+            # Get loan database from bot
+            loan_database = self.bot.loan_database
+            
+            # Find the user's active loans with installment payments
+            installment_loans = []
+            
+            if "loans" in loan_database and loan_database["loans"]:
+                for loan in loan_database["loans"]:
+                    if (loan and loan.get("user_id") == user_id and 
+                        loan.get("guild_id") == guild_id and 
+                        (loan.get("status") == "active" or loan.get("status") == "active_partial") and
+                        loan.get("installment_enabled", False)):
+                        installment_loans.append(loan)
+            
+            if not installment_loans:
+                return await send_message(
+                    "You don't have any active loans with pending installment payments.",
+                    ephemeral=True
+                )
+            
+            # Create embed for installment loan details
+            embed = discord.Embed(
+                title="💳 Your Installment Loans",
+                description=f"You have {len(installment_loans)} active installment loans with pending payments.",
+                color=0x0099FF
             )
             
-            embed.add_field(
-                name=f"Loan #{loan_id}",
-                value=field_value,
-                inline=False
-            )
-        
-        # Create a view with payment buttons
-        view = discord.ui.View()
-        
-        # Add buttons for each loan (limit to 5 to avoid hitting the button limit)
-        for loan in installment_loans[:5]:
-            loan_id = loan.get("id", "Unknown")
+            for loan in installment_loans:
+                loan_id = loan.get("id", "Unknown")
+                amount = loan.get("amount", 0)
+                total_repayment = loan.get("total_repayment", 0)
+                due_date = self._parse_datetime(loan.get("due_date", datetime.datetime.now()))
+                
+                # Get installment details
+                amount_repaid = loan.get("amount_repaid", 0)
+                remaining_balance = total_repayment - amount_repaid
+                min_payment = loan.get("min_installment_amount", 1000)
+                
+                # Format the due date as a Discord timestamp
+                timestamp = int(due_date.timestamp())
+                
+                # Determine if loan is late
+                is_late = datetime.datetime.now() > due_date
+                status = "**OVERDUE - PAYMENT REQUIRED**" if is_late else ("Partially Repaid" if loan.get("status") == "active_partial" else "Awaiting First Payment")
+                
+                # Get payment progress
+                if amount_repaid > 0:
+                    progress = int((amount_repaid / total_repayment) * 10)
+                    progress_bar = "▰" * progress + "▱" * (10 - progress)
+                    percent = int((amount_repaid / total_repayment) * 100)
+                    progress_text = f"{progress_bar} {percent}%"
+                else:
+                    progress_text = "No payments made yet"
+                
+                # Create field value with detailed loan info
+                field_value = (
+                    f"**Original Amount:** {amount} {config.UNBELIEVABOAT['CURRENCY_NAME']}\n"
+                    f"**Total Repayment:** {total_repayment} {config.UNBELIEVABOAT['CURRENCY_NAME']}\n"
+                    f"**Amount Repaid:** {amount_repaid} {config.UNBELIEVABOAT['CURRENCY_NAME']}\n"
+                    f"**Remaining Balance:** {remaining_balance} {config.UNBELIEVABOAT['CURRENCY_NAME']}\n"
+                    f"**Minimum Payment:** {min_payment} {config.UNBELIEVABOAT['CURRENCY_NAME']}\n"
+                    f"**Due Date:** <t:{timestamp}:F>\n"
+                    f"**Status:** {status}\n"
+                    f"**Progress:** {progress_text}\n\n"
+                    f"Use `/pay_installment {loan_id} [amount]` to make a payment."
+                )
+                
+                embed.add_field(
+                    name=f"Loan #{loan_id}",
+                    value=field_value,
+                    inline=False
+                )
             
-            # Add installment payment button
-            pay_button = discord.ui.Button(
-                style=discord.ButtonStyle.success,
-                label=f"Pay Loan #{loan_id} Installment",
-                custom_id=f"installment_{user_id}_{loan_id}"
+            # Create a view with payment buttons
+            view = discord.ui.View()
+            
+            # Add buttons for each loan (limit to 5 to avoid hitting the button limit)
+            for loan in installment_loans[:5]:
+                loan_id = loan.get("id", "Unknown")
+                
+                # Add installment payment button
+                pay_button = discord.ui.Button(
+                    style=discord.ButtonStyle.success,
+                    label=f"Pay Loan #{loan_id} Installment",
+                    custom_id=f"installment_{user_id}_{loan_id}"
+                )
+                
+                view.add_item(pay_button)
+            
+            # Send the response
+            await send_message(embed=embed, view=view)
+        
+        except Exception as e:
+            logger.error(f"Error in pending_payments command: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            await send_message(
+                "There was an error processing your pending installment payments. Please try again or contact an admin."
             )
             
-            view.add_item(pay_button)
-        
-        # Send the response
-        await interaction.followup.send(embed=embed, view=view)
-    
     # Button handler for installment payments
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
         """Handle button interactions for installment payments"""
-        if not interaction.data or not interaction.data.get("custom_id"):
-            return
-        
-        custom_id = interaction.data.get("custom_id", "")
-        
-        # Check if this is an installment payment button
-        if custom_id.startswith("installment_"):
-            parts = custom_id.split("_")
-            if len(parts) < 3:
+        try:
+            if not interaction.data or not interaction.data.get("custom_id"):
                 return
             
-            intended_user_id = parts[1]
-            loan_id = parts[2]
+            custom_id = interaction.data.get("custom_id", "")
             
-            # Verify this is the correct user
-            if str(interaction.user.id) != intended_user_id:
-                return await interaction.response.send_message(
-                    "This button is not for you. Only the loan holder can make installment payments.",
-                    ephemeral=True
-                )
-            
-            # Get the loan details
-            loan_database = self.bot.loan_database
-            
-            # Find the loan
-            loan = None
-            for l in loan_database.get("loans", []):
-                if l and l.get("id") == loan_id and l.get("user_id") == intended_user_id:
-                    loan = l
-                    break
-            
-            if not loan:
-                return await interaction.response.send_message(
-                    f"Loan #{loan_id} not found or has already been repaid.",
-                    ephemeral=True
-                )
-            
-            # Open a modal to ask for payment amount
-            modal = discord.ui.Modal(title="Installment Payment")
-            
-            # Calculate remaining balance
-            amount_repaid = loan.get("amount_repaid", 0)
-            remaining_balance = loan.get("total_repayment", 0) - amount_repaid
-            min_payment = loan.get("min_installment_amount", 1000)
-            
-            # Add payment amount input field
-            amount_input = discord.ui.TextInput(
-                label=f"Payment amount (min: {min_payment})",
-                placeholder=f"Enter amount between {min_payment} and {remaining_balance}",
-                required=True,
-                style=discord.TextStyle.short
-            )
-            modal.add_item(amount_input)
-            
-            async def modal_callback(modal_interaction):
+            # Check if this is an installment payment button
+            if custom_id.startswith("installment_"):
+                parts = custom_id.split("_")
+                if len(parts) < 3:
+                    return
+                
+                intended_user_id = parts[1]
+                loan_id = parts[2]
+                
+                # Verify this is the correct user
+                if str(interaction.user.id) != intended_user_id:
+                    return await interaction.response.send_message(
+                        "This button is not for you. Only the loan holder can make installment payments.",
+                        ephemeral=True
+                    )
+                
+                # Get the loan details
+                loan_database = self.bot.loan_database
+                
+                # Find the loan
+                loan = None
+                for l in loan_database.get("loans", []):
+                    if l and l.get("id") == loan_id and l.get("user_id") == intended_user_id:
+                        loan = l
+                        break
+                
+                if not loan:
+                    return await interaction.response.send_message(
+                        f"Loan #{loan_id} not found or has already been repaid.",
+                        ephemeral=True
+                    )
+                
                 try:
-                    amount_value = amount_input.value.strip()
-                    amount = int(amount_value)
+                    # Open a modal to ask for payment amount
+                    modal = discord.ui.Modal(title="Installment Payment")
                     
-                    # Execute the pay_installment command
-                    await self.pay_installment(modal_interaction, loan_id, amount)
-                except ValueError:
-                    await modal_interaction.response.send_message(
-                        "Please enter a valid number for the payment amount.",
-                        ephemeral=True
+                    # Calculate remaining balance
+                    amount_repaid = loan.get("amount_repaid", 0)
+                    remaining_balance = loan.get("total_repayment", 0) - amount_repaid
+                    min_payment = loan.get("min_installment_amount", 1000)
+                    
+                    # Add payment amount input field
+                    amount_input = discord.ui.TextInput(
+                        label=f"Payment amount (min: {min_payment})",
+                        placeholder=f"Enter amount between {min_payment} and {remaining_balance}",
+                        required=True,
+                        style=discord.TextStyle.short
                     )
+                    modal.add_item(amount_input)
+                    
+                    async def modal_callback(modal_interaction):
+                        try:
+                            amount_value = amount_input.value.strip()
+                            amount = int(amount_value)
+                            
+                            # Execute the pay_installment command
+                            await self.pay_installment(modal_interaction, loan_id, amount)
+                        except ValueError:
+                            if modal_interaction.response.is_done():
+                                await modal_interaction.followup.send(
+                                    "Please enter a valid number for the payment amount.",
+                                    ephemeral=True
+                                )
+                            else:
+                                await modal_interaction.response.send_message(
+                                    "Please enter a valid number for the payment amount.",
+                                    ephemeral=True
+                                )
+                        except Exception as e:
+                            logger.error(f"Error in installment modal: {e}")
+                            if modal_interaction.response.is_done():
+                                await modal_interaction.followup.send(
+                                    "There was an error processing your payment. Please try again.",
+                                    ephemeral=True
+                                )
+                            else:
+                                await modal_interaction.response.send_message(
+                                    "There was an error processing your payment. Please try again.",
+                                    ephemeral=True
+                                )
+                    
+                    modal.on_submit = modal_callback
+                    await interaction.response.send_modal(modal)
                 except Exception as e:
-                    logger.error(f"Error in installment modal: {e}")
-                    await modal_interaction.response.send_message(
-                        "There was an error processing your payment. Please try again.",
+                    logger.error(f"Error sending modal: {e}")
+                    await interaction.response.send_message(
+                        "There was an error processing your payment request. Please try again.",
                         ephemeral=True
                     )
-            
-            modal.on_submit = modal_callback
-            await interaction.response.send_modal(modal)
+        except Exception as e:
+            logger.error(f"Error in on_interaction handler: {e}")
+            # No response here as we don't know the interaction state
 
 
 async def setup(bot):
-    await bot.add_cog(InstallmentCommand(bot)) 
+    # Register the cog with the bot
+    try:
+        cog = InstallmentCommand(bot)
+        await bot.add_cog(cog)
+        logger.info("InstallmentCommand cog registered successfully")
+    except Exception as e:
+        logger.error(f"Error setting up InstallmentCommand cog: {e}")
+        import traceback
+        logger.error(traceback.format_exc()) 

@@ -147,231 +147,357 @@ class LoanCommand(commands.Cog):
     @app_commands.describe(
         amount=f"The amount of {config.UNBELIEVABOAT['CURRENCY_NAME']} to borrow",
         days="Number of days to repay the loan",
-        installments="Enable repayment in installments (default: True)"
+        installment="Enable installment payments (default: False)",
+        reason="Reason for requesting the loan"
     )
-    async def loan(self, interaction: discord.Interaction, amount: int, days: int, installments: bool = True):
-        # Check if the user has the captain role
-        guild_id = str(interaction.guild.id)
-        if not server_settings.check_is_captain(guild_id, interaction.user):
-            # Get the captain role ID
-            captain_role_id = server_settings.get_captain_role(guild_id)
-            if captain_role_id:
-                captain_role = interaction.guild.get_role(int(captain_role_id))
-                role_mention = captain_role.mention if captain_role else f"role with ID {captain_role_id}"
-                return await interaction.response.send_message(
-                    f"Only members with the {role_mention} role can request loans. "
-                    f"Please ask your server admin to give you this role if you are a captain.",
-                    ephemeral=True
-                )
-            else:
-                # This shouldn't happen since check_is_captain returns True when no role is set
-                return await interaction.response.send_message(
-                    "There was an error checking your permissions. Please ask your server admin to use "
-                    "`/set_captain_role` to set up which role can request loans.",
-                    ephemeral=True
-                )
-            
-        # Get the maximum loan amount for this server
-        max_loan_amount = server_settings.get_max_loan_amount(guild_id)
-        
-        # Get the maximum repayment days for this server
-        max_repayment_days = server_settings.get_max_repayment_days(guild_id)
-        
-        # Check if installments are enabled for this server
-        installment_enabled = server_settings.get_installment_enabled(guild_id)
-        if installments and not installment_enabled:
-            installments = False
-        
-        # Validate input
-        if amount < 1000:
-            return await interaction.response.send_message(
-                f"Loan amount must be at least 1,000 {config.UNBELIEVABOAT['CURRENCY_NAME']}.",
-                ephemeral=True
-            )
-        
-        if amount > max_loan_amount:
-            return await interaction.response.send_message(
-                f"Loan amount cannot exceed {max_loan_amount:,} {config.UNBELIEVABOAT['CURRENCY_NAME']}. "
-                f"This is the maximum set by the server administrator.",
-                ephemeral=True
-            )
-        
-        if days < 1 or (days > max_repayment_days and max_repayment_days < 9999):
-            # Customize message based on whether max days is "unlimited"
-            if max_repayment_days >= 9999:
-                return await interaction.response.send_message(
-                    f"Loan duration must be at least 1 day. "
-                    f"Your server has unlimited maximum repayment days.",
-                    ephemeral=True
-                )
-            else:
-                return await interaction.response.send_message(
-                    f"Loan duration must be at least 1 day and cannot exceed {max_repayment_days} days. "
-                    f"The maximum repayment period is set by the server administrator.",
-                    ephemeral=True
-                )
-        
-        # Defer the reply first to prevent interaction timeout
-        await interaction.response.defer()
-        
-        print(f"Processing loan request from user: {interaction.user}")
-        
-        user_id = str(interaction.user.id)
-        
-        # Get loan database from bot
-        loan_database = self.bot.loan_database
-        
-        # Calculate interest rate based on credit score
-        credit_score = loan_database.get("credit_scores", {}).get(user_id, 100)  # Default score for new users
-        
-        # Set interest rate to 0% regardless of credit score
-        interest_rate = 0.0  # 0% interest
-        
-        interest = round(amount * interest_rate)
-        total_repayment = amount + interest
-        
-        # Calculate due date
-        due_date = datetime.datetime.now() + datetime.timedelta(days=days)
-        
-        # Create a unique 4-digit ID for this loan
-        loan_id = generate_loan_id(loan_database.get("loans", []))
-        
-        # Create loan request object
-        loan_request = {
-            "id": loan_id,
-            "user_id": user_id,
-            "amount": amount,
-            "interest": interest,
-            "total_repayment": total_repayment,
-            "request_date": datetime.datetime.now(),
-            "due_date": due_date,
-            "status": "pending",
-            "days": days,
-            "guild_id": guild_id
-        }
-        
-        # Add installment info if enabled
-        if installments and installment_enabled:
-            # Get minimum installment percentage for this guild
-            min_installment_percent = server_settings.get_min_installment_percent(guild_id)
-            min_installment_amount = max(1000, round(total_repayment * (min_installment_percent / 100)))
-            
-            loan_request["installment_enabled"] = True
-            loan_request["min_installment_percent"] = min_installment_percent
-            loan_request["min_installment_amount"] = min_installment_amount
-            loan_request["amount_repaid"] = 0
-        else:
-            loan_request["installment_enabled"] = False
-        
-        # Save to database
-        if "loan_requests" not in loan_database:
-            loan_database["loan_requests"] = []
-            
-        loan_database["loan_requests"].append(loan_request)
-        
-        # Create embed for loan request details
-        embed = discord.Embed(
-            title="🏦 Loan Request Submitted",
-            description=f"Captain {interaction.user.display_name}, your loan request has been submitted! An admin will review it shortly.",
-            color=0x0099FF
-        )
-        
-        embed.add_field(name="Request ID", value=f"{loan_id}", inline=True)
-        embed.add_field(name="Loan Amount", value=f"{amount} {config.UNBELIEVABOAT['CURRENCY_NAME']}", inline=True)
-        embed.add_field(name="Repayment Period", value=f"{days} days", inline=True)
-        embed.add_field(name="Interest Rate", value=f"{(interest_rate * 100):.0f}%", inline=True)
-        embed.add_field(name="Interest Amount", value=f"{interest} {config.UNBELIEVABOAT['CURRENCY_NAME']}", inline=True)
-        embed.add_field(name="Total Repayment", value=f"{total_repayment} {config.UNBELIEVABOAT['CURRENCY_NAME']}", inline=True)
-        
-        # Format the due date as a Discord timestamp
-        timestamp = int(due_date.timestamp())
-        embed.add_field(name="Due Date (if approved)", value=f"<t:{timestamp}:F>", inline=True)
-        
-        embed.add_field(name="Credit Score", value=f"{credit_score}", inline=True)
-        embed.add_field(name="Late Fee", value="5% of loan amount", inline=True)
-        
-        # Add installment information if enabled
-        if installments and installment_enabled:
-            embed.add_field(name="Installments", value="Enabled", inline=True)
-            embed.add_field(name="Minimum Installment", value=f"{min_installment_amount} {config.UNBELIEVABOAT['CURRENCY_NAME']} ({min_installment_percent}%)", inline=True)
-        
-        # Add status field
-        embed.add_field(name="Status", value="⏳ Pending Admin Approval", inline=False)
-        
-        # Send to the user
-        await interaction.followup.send(embed=embed)
-        
-        # Try to notify admins about the pending request
+    async def loan(self, interaction: discord.Interaction, amount: int, days: int = 7, installment: bool = False, reason: str = ""):
+        """Command to request a loan from the server administrators"""
         try:
-            # Try to find an admin channel first
-            admin_channel_id = server_settings.get_admin_channel(guild_id)
-            admin_channel = None
-            
-            if admin_channel_id:
-                admin_channel = interaction.guild.get_channel(int(admin_channel_id))
-            
-            # If no admin channel is set, try to notify admins in the current channel
-            if admin_channel:
-                notification_channel = admin_channel
+            # Check if interaction is already responded to
+            if interaction.response.is_done():
+                logger.warning("Interaction already acknowledged in loan command, using followup instead")
+                send_message = interaction.followup.send
             else:
-                notification_channel = interaction.channel
+                # Defer the reply first to prevent interaction timeout
+                await interaction.response.defer()
+                send_message = interaction.followup.send
+            
+            user_id = str(interaction.user.id)
+            guild_id = str(interaction.guild.id)
+            
+            # Check if user is a captain or has necessary permissions
+            can_request = await self._check_can_request_loan(interaction)
+            
+            if not can_request:
+                # Skip the message since it's handled in _check_can_request_loan
+                return
+            
+            max_loan_amount = server_settings.get_max_loan_amount(guild_id)
+            
+            # Check if amount is valid
+            if amount <= 0:
+                return await send_message(
+                    f"Loan amount must be greater than 0 {config.UNBELIEVABOAT['CURRENCY_NAME']}.",
+                    ephemeral=True
+                )
+            
+            if amount > max_loan_amount:
+                return await send_message(
+                    f"You can't request more than {max_loan_amount:,} {config.UNBELIEVABOAT['CURRENCY_NAME']}.",
+                    ephemeral=True
+                )
                 
-            # Get approval roles to ping
-            approval_roles = server_settings.get_approval_roles(guild_id)
-            role_mentions = []
+            # Check if days is valid
+            max_days = server_settings.get_max_repayment_days(guild_id)
             
-            for role_id in approval_roles:
-                role = interaction.guild.get_role(int(role_id))
-                if role:
-                    role_mentions.append(role.mention)
-            
-            ping_text = " ".join(role_mentions) if role_mentions else ""
+            if days <= 0:
+                return await send_message(
+                    "Repayment days must be greater than 0.",
+                    ephemeral=True
+                )
                 
-            # Create an admin notification embed
-            admin_embed = discord.Embed(
-                title="🔔 New Loan Request",
-                description=f"A new loan request has been submitted by {interaction.user.mention}",
-                color=0xFFA500  # Orange
-            )
+            if days > max_days:
+                if max_days >= 9999:
+                    return await send_message(
+                        f"You can't set repayment longer than {max_days} days.",
+                        ephemeral=True
+                    )
+                else:
+                    return await send_message(
+                        f"You can't set repayment longer than {max_days} days.",
+                        ephemeral=True
+                    )
             
-            admin_embed.add_field(name="Request ID", value=f"{loan_id}", inline=True)
-            admin_embed.add_field(name="Amount", value=f"{amount} {config.UNBELIEVABOAT['CURRENCY_NAME']}", inline=True)
-            admin_embed.add_field(name="Duration", value=f"{days} days", inline=True)
-            admin_embed.add_field(name="Requested By", value=f"{interaction.user.display_name} ({interaction.user.id})", inline=False)
+            # Check if installments are enabled in this server
+            if installment and not server_settings.is_installment_enabled(guild_id):
+                return await send_message(
+                    "Installment payments are not enabled in this server.",
+                    ephemeral=True
+                )
             
-            # Add installment information if enabled
-            if installments and installment_enabled:
-                admin_embed.add_field(name="Installments", value="Enabled", inline=True)
-                admin_embed.add_field(name="Min. Installment", value=f"{loan_request['min_installment_amount']} {config.UNBELIEVABOAT['CURRENCY_NAME']} ({loan_request['min_installment_percent']}%)", inline=True)
+            # Check if user has outstanding loans that are not paid
+            outstanding_loan = self._has_outstanding_loan(user_id, guild_id)
             
-            # Create approval/denial buttons
-            approve_button = discord.ui.Button(
-                style=discord.ButtonStyle.success,
-                label="Approve",
-                custom_id=f"approve_loan_{loan_id}"
-            )
+            if outstanding_loan:
+                loan_id = outstanding_loan.get("id", "unknown")
+                loan_amount = outstanding_loan.get("amount", 0)
+                
+                # Create embed for outstanding loan error
+                embed = discord.Embed(
+                    title="❌ Outstanding Loan",
+                    description="You already have an outstanding loan that needs to be repaid first.",
+                    color=0xFF0000
+                )
+                
+                embed.add_field(
+                    name="Loan ID",
+                    value=loan_id,
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="Amount",
+                    value=f"{loan_amount:,} {config.UNBELIEVABOAT['CURRENCY_NAME']}",
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="How to repay",
+                    value=f"Use `/repay {loan_id}` to repay your existing loan first.",
+                    inline=False
+                )
+                
+                return await send_message(
+                    embed=embed,
+                    ephemeral=True
+                )
             
-            deny_button = discord.ui.Button(
-                style=discord.ButtonStyle.danger,
-                label="Deny",
-                custom_id=f"deny_loan_{loan_id}"
-            )
+            # Generate a unique loan ID (4-digit number)
+            loan_id = await self._generate_loan_id()
             
-            view = discord.ui.View()
-            view.add_item(approve_button)
-            view.add_item(deny_button)
+            # Calculate due date
+            due_date = datetime.datetime.now() + datetime.timedelta(days=days)
             
-            # Send notification to admins
-            notification_content = f"{ping_text}\nAttention: A new loan request requires approval" if ping_text else "Attention Admins: A new loan request requires your approval"
+            # Calculate 10% interest
+            interest = round(amount * 0.10)
+            total_repayment = amount + interest
             
-            await notification_channel.send(
-                content=notification_content,
-                embed=admin_embed,
-                view=view
-            )
+            # Store the loan request in the database
+            loan_request = {
+                "id": loan_id,
+                "user_id": user_id,
+                "user_name": str(interaction.user),
+                "guild_id": guild_id,
+                "guild_name": str(interaction.guild.name) if interaction.guild else "Unknown",
+                "amount": amount,
+                "interest": interest,
+                "total_repayment": total_repayment,
+                "days": days,
+                "reason": reason if reason else "No reason provided",
+                "status": "pending",
+                "request_date": datetime.datetime.now(),
+                "due_date": due_date,
+                "installment_enabled": installment,
+            }
+            
+            # If installment is enabled, calculate minimum payment amount
+            if installment:
+                # Get the minimum installment percentage (default to 10%)
+                min_percent = server_settings.get_min_installment_percent(guild_id)
+                
+                # Calculate minimum payment (at least 1000 or 10% of total)
+                min_payment = max(1000, round(total_repayment * (min_percent / 100)))
+                loan_request["min_installment_amount"] = min_payment
+                loan_request["min_installment_percent"] = min_percent
+            
+            self.bot.loan_database.setdefault("loan_requests", []).append(loan_request)
+            
+            # Get admin channel where to send the loan request
+            admin_channel_id = server_settings.get_admin_channel(guild_id)
+            
+            # Send loan request to admin channel if configured
+            if admin_channel_id:
+                admin_channel = self.bot.get_channel(int(admin_channel_id))
+                
+                if admin_channel:
+                    # Create embed for loan request
+                    embed = discord.Embed(
+                        title="🏦 Loan Request",
+                        description=f"{interaction.user.mention} has requested a loan.",
+                        color=0x0099FF,
+                        timestamp=datetime.datetime.now()
+                    )
+                    
+                    embed.add_field(
+                        name="Loan ID",
+                        value=loan_id,
+                        inline=True
+                    )
+                    
+                    embed.add_field(
+                        name="User",
+                        value=f"{interaction.user.mention} (ID: {user_id})",
+                        inline=True
+                    )
+                    
+                    embed.add_field(
+                        name="Amount Requested",
+                        value=f"{amount:,} {config.UNBELIEVABOAT['CURRENCY_NAME']}",
+                        inline=True
+                    )
+                    
+                    embed.add_field(
+                        name="Interest (10%)",
+                        value=f"{interest:,} {config.UNBELIEVABOAT['CURRENCY_NAME']}",
+                        inline=True
+                    )
+                    
+                    embed.add_field(
+                        name="Total Repayment",
+                        value=f"{total_repayment:,} {config.UNBELIEVABOAT['CURRENCY_NAME']}",
+                        inline=True
+                    )
+                    
+                    embed.add_field(
+                        name="Repayment Period",
+                        value=f"{days} days (Due: <t:{int(due_date.timestamp())}:R>)",
+                        inline=True
+                    )
+                    
+                    if installment:
+                        min_payment = loan_request.get("min_installment_amount", 0)
+                        embed.add_field(
+                            name="Installment Payments",
+                            value=f"Enabled (Minimum payment: {min_payment:,} {config.UNBELIEVABOAT['CURRENCY_NAME']})",
+                            inline=True
+                        )
+                    
+                    embed.add_field(
+                        name="Reason",
+                        value=reason if reason else "No reason provided",
+                        inline=False
+                    )
+                    
+                    # Get user's credit score
+                    credit_score = self._get_credit_score(user_id)
+                    embed.add_field(
+                        name="Credit Score",
+                        value=f"{credit_score}",
+                        inline=True
+                    )
+                    
+                    # Create view with approve/deny buttons
+                    view = discord.ui.View(timeout=None)  # Buttons don't expire
+                    
+                    # Approve button
+                    approve_button = discord.ui.Button(
+                        style=discord.ButtonStyle.success,
+                        label="Approve Loan",
+                        custom_id=f"approve_loan_{loan_id}"
+                    )
+                    
+                    # Deny button
+                    deny_button = discord.ui.Button(
+                        style=discord.ButtonStyle.danger,
+                        label="Deny Loan",
+                        custom_id=f"deny_loan_{loan_id}"
+                    )
+                    
+                    view.add_item(approve_button)
+                    view.add_item(deny_button)
+                    
+                    # Get approval roles
+                    approval_role_ids = server_settings.get_approval_roles(guild_id)
+                    
+                    # Create role mentions for the approval roles
+                    mention_text = ""
+                    if approval_role_ids:
+                        role_mentions = []
+                        for role_id in approval_role_ids:
+                            role = interaction.guild.get_role(int(role_id))
+                            if role:
+                                role_mentions.append(role.mention)
+                        
+                        if role_mentions:
+                            mention_text = " ".join(role_mentions)
+                    
+                    # Send the embed with approve/deny buttons
+                    await admin_channel.send(
+                        content=f"New loan request from {interaction.user.mention}! {mention_text}",
+                        embed=embed,
+                        view=view
+                    )
+                    
+                    # Respond to the user
+                    user_embed = discord.Embed(
+                        title="✅ Loan Request Submitted",
+                        description="Your loan request has been submitted successfully!",
+                        color=0x00FF00
+                    )
+                    
+                    user_embed.add_field(
+                        name="Loan ID",
+                        value=loan_id,
+                        inline=True
+                    )
+                    
+                    user_embed.add_field(
+                        name="Amount",
+                        value=f"{amount:,} {config.UNBELIEVABOAT['CURRENCY_NAME']}",
+                        inline=True
+                    )
+                    
+                    user_embed.add_field(
+                        name="Interest (10%)",
+                        value=f"{interest:,} {config.UNBELIEVABOAT['CURRENCY_NAME']}",
+                        inline=True
+                    )
+                    
+                    user_embed.add_field(
+                        name="Total to Repay",
+                        value=f"{total_repayment:,} {config.UNBELIEVABOAT['CURRENCY_NAME']}",
+                        inline=True
+                    )
+                    
+                    user_embed.add_field(
+                        name="Repayment Period",
+                        value=f"{days} days (Due: <t:{int(due_date.timestamp())}:R>)",
+                        inline=True
+                    )
+                    
+                    if installment:
+                        min_payment = loan_request.get("min_installment_amount", 0)
+                        user_embed.add_field(
+                            name="Installment Payments",
+                            value=f"Enabled (Minimum payment: {min_payment:,} {config.UNBELIEVABOAT['CURRENCY_NAME']})",
+                            inline=True
+                        )
+                    
+                    user_embed.add_field(
+                        name="Status",
+                        value="Pending approval by administrators",
+                        inline=False
+                    )
+                    
+                    await send_message(
+                        embed=user_embed
+                    )
+                else:
+                    # Admin channel not found, but ID was configured
+                    logger.warning(f"Admin channel {admin_channel_id} not found in guild {guild_id}")
+                    
+                    await send_message(
+                        "Your loan request was submitted, but the admin channel for reviews could not be found. Please contact an administrator.",
+                        ephemeral=True
+                    )
+            else:
+                # No admin channel configured
+                logger.warning(f"No admin channel configured for guild {guild_id}")
+                
+                await send_message(
+                    "The loan system is not fully configured in this server. Please ask an administrator to run `/setup_loans` first.",
+                    ephemeral=True
+                )
         except Exception as e:
-            print(f"Could not notify admins of loan request: {e}")
-            # We don't need to inform the user about this, as their request is still saved
+            logger.error(f"Error in loan command: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            
+            # Check if we can still respond
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(
+                        "There was an error processing your loan request. Please try again or contact an admin.",
+                        ephemeral=True
+                    )
+                else:
+                    await interaction.response.send_message(
+                        "There was an error processing your loan request. Please try again or contact an admin.",
+                        ephemeral=True
+                    )
+            except Exception as e2:
+                logger.error(f"Error sending error message: {e2}")
+                pass
 
     @app_commands.command(name="loanrequests", description="View all pending loan requests (Admin only)")
     @app_commands.describe(
@@ -837,383 +963,151 @@ class LoanCommand(commands.Cog):
                 ephemeral=True
             )
             
-    async def on_interaction(self, interaction):
-        """Handle button interactions for loan requests"""
-        if interaction.type != discord.InteractionType.component:
-            return
+    # Handle loan approval/denial buttons
+    @commands.Cog.listener()
+    async def on_interaction(self, interaction: discord.Interaction):
+        try:
+            if not interaction.data or not interaction.data.get("custom_id"):
+                return
             
-        custom_id = interaction.data.get("custom_id", "")
-        
-        # Handle loan approval button
-        if custom_id.startswith("approve_loan_"):
-            # Check if the user has approval permissions
-            guild_id = str(interaction.guild.id)
-            approval_roles = server_settings.get_approval_roles(guild_id)
+            custom_id = interaction.data.get("custom_id", "")
             
-            # Check if user has admin permissions or is in approval roles
-            has_permission = interaction.user.guild_permissions.administrator
-            
-            if not has_permission and approval_roles:
-                for role in interaction.user.roles:
-                    if str(role.id) in approval_roles:
-                        has_permission = True
-                        break
-            
-            if not has_permission:
-                return await interaction.response.send_message(
-                    "You don't have permission to approve loan requests. This action is for administrators and approved roles only.",
-                    ephemeral=True
-                )
-            
-            # Extract loan ID from custom_id
-            loan_id = custom_id.replace("approve_loan_", "")
-            
-            # Process the approval directly instead of calling the command
-            await interaction.response.defer()
-            
-            # Initialize manual_needed variable
-            manual_needed = False
-            
-            # Get loan database
-            loan_database = self.bot.loan_database
-            
-            # Find the loan request
-            if "loan_requests" not in loan_database or not loan_database["loan_requests"]:
-                return await interaction.followup.send(
-                    f"Loan request #{loan_id} not found.",
-                    ephemeral=True
-                )
-            
-            # Find loan request index
-            request_index = -1
-            guild_id = str(interaction.guild.id)
-            
-            for i, request in enumerate(loan_database["loan_requests"]):
-                if (request and request.get("id") == loan_id and 
-                    request.get("status") == "pending" and
-                    request.get("guild_id") == guild_id):
-                    request_index = i
-                    break
-            
-            if request_index == -1:
-                return await interaction.followup.send(
-                    f"Loan request #{loan_id} not found or already processed.",
-                    ephemeral=True
-                )
-            
-            # Get the request and update status
-            loan_request = loan_database["loan_requests"][request_index]
-            loan_request["status"] = "approved"
-            loan_request["approved_by"] = str(interaction.user.id)
-            loan_request["approved_date"] = datetime.datetime.now()
-            
-            # Create a loan based on the request
-            loan = loan_request.copy()
-            loan["status"] = "active"
-            
-            # Save the loan
-            if "loans" not in loan_database:
-                loan_database["loans"] = []
-                
-            loan_database["loans"].append(loan)
-            
-            # Log successful loan creation
-            logger.info(f"Created active loan #{loan_id} for user {loan_request['user_id']} with amount {loan_request['amount']}")
-            logger.info(f"Current loans in database: {len(loan_database['loans'])}")
-            
-            # Get user information
-            user_id = loan_request["user_id"]
-            try:
-                user = await self.bot.fetch_user(int(user_id))
-                user_name = user.name
-            except:
-                user_name = f"User {user_id}"
-            
-            # Create admin response embed
-            admin_embed = discord.Embed(
-                title="✅ Loan Request Approved",
-                description=f"You have approved the loan request #{loan_id} for {user_name}.",
-                color=0x00FF00
-            )
-            
-            admin_embed.add_field(name="Loan ID", value=loan_id, inline=True)
-            admin_embed.add_field(name="Amount", value=f"{loan_request['amount']} {config.UNBELIEVABOAT['CURRENCY_NAME']}", inline=True)
-            admin_embed.add_field(name="Duration", value=f"{loan_request['days']} days", inline=True)
-            
-            # Send admin confirmation
-            await interaction.followup.send(embed=admin_embed)
-            
-            # Process UnbelievaBoat integration if enabled
-            if config.UNBELIEVABOAT["ENABLED"] and unbelievaboat:
-                try:
-                    # Ensure guild_id is a string
-                    guild_id_str = str(guild_id)
-                    user_id_str = str(user_id)
-                    
-                    logger.info(f"Attempting to add currency for loan #{loan_id} to user {user_id_str} in guild {guild_id_str}")
-                    
-                    # Try the API call
-                    result = await unbelievaboat.add_currency(
-                        guild_id_str,
-                        user_id_str,
-                        loan_request["amount"],
-                        f"Loan #{loan_id} - {loan_request['amount']} {config.UNBELIEVABOAT['CURRENCY_NAME']} with {loan_request['interest']} interest due in {loan_request['days']} days"
-                    )
-                    
-                    if result:
-                        # Update loan with transaction info
-                        loan["unbelievaboat"] = {
-                            "transaction_processed": True,
-                            "balance": result["cash"],
-                            "transaction_time": datetime.datetime.now().isoformat()
-                        }
-                        logger.info(f"Successfully added {loan_request['amount']} currency to user {user_id_str}")
-                        
-                        # Notify admin of success
-                        await interaction.followup.send(
-                            f"✅ API Success: Added {loan_request['amount']} {config.UNBELIEVABOAT['CURRENCY_NAME']} to {user_name}'s account.",
-                            ephemeral=True
-                        )
-                    else:
-                        logger.error(f"UnbelievaBoat API returned None for add_currency call. Guild ID: {guild_id_str}, User ID: {user_id_str}, Amount: {loan_request['amount']}")
-                        
-                        # Fall back to manual mode if API fails
-                        loan["unbelievaboat"] = {
-                            "transaction_processed": False,
-                            "error": "API returned None"
-                        }
-                        
-                        # Notify admin of failure and provide manual instructions
-                        await interaction.followup.send(
-                            f"⚠️ API Error: Failed to add currency through API. Please use manual command: `{config.UNBELIEVABOAT['COMMANDS']['PAY']} {user_id_str} {loan_request['amount']} Loan #{loan_id}`",
-                            ephemeral=True
-                        )
-                        
-                        # Enable manual mode for this transaction
-                        manual_needed = True
-                except Exception as error:
-                    logger.error(f"UnbelievaBoat API error during loan approval: {str(error)}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-                    
-                    # Fall back to manual mode on exception
-                    loan["unbelievaboat"] = {
-                        "transaction_processed": False,
-                        "error": str(error)
-                    }
-                    
-                    # Notify admin of failure
-                    await interaction.followup.send(
-                        f"⚠️ API Error: {str(error)}. Please add currency manually.",
-                        ephemeral=True
-                    )
-                    
-                    # Enable manual mode for this transaction
-                    manual_needed = True
+            # Check if interaction is already responded to
+            if interaction.response.is_done():
+                logger.warning("Interaction already acknowledged in loan button handler, using followup instead")
+                send_message = interaction.followup.send
+                def defer_func():
+                    pass  # Already responded
             else:
-                # API not enabled, use manual mode
-                manual_needed = True
+                send_message = interaction.response.send_message
+                async def defer_func():
+                    await interaction.response.defer()
             
-            # Try to notify the user
-            try:
-                # Create user notification embed
-                user_embed = self._create_loan_embed(
-                    interaction, 
-                    loan, 
-                    loan_id, 
-                    loan_request["amount"], 
-                    0.0,  # interest rate 
-                    loan_request["interest"], 
-                    loan_request["total_repayment"], 
-                    loan_request["due_date"],
-                    loan_database.get("credit_scores", {}).get(user_id, 100)
-                )
+            # Handle loan approval button
+            if custom_id.startswith("approve_loan_"):
+                loan_id = custom_id.replace("approve_loan_", "")
                 
-                # Create repayment button
-                view = self._create_repay_button_view(user_id, loan_id)
+                # Check permissions
+                if not interaction.user.guild_permissions.administrator:
+                    # Check if user has an approval role
+                    guild_id = str(interaction.guild.id)
+                    approval_roles = server_settings.get_approval_roles(guild_id)
+                    
+                    has_approval_role = False
+                    for role in interaction.user.roles:
+                        if str(role.id) in approval_roles:
+                            has_approval_role = True
+                            break
+                    
+                    if not has_approval_role:
+                        try:
+                            await send_message(
+                                "You don't have permission to approve loan requests. Only admins or users with an approval role can do this.",
+                                ephemeral=True
+                            )
+                        except Exception as e:
+                            logger.error(f"Error sending permission message: {e}")
+                        return
                 
-                # Try to DM the user
                 try:
-                    user_obj = await self.bot.fetch_user(int(user_id))
-                    await user_obj.send(
-                        content=f"Your loan request #{loan_id} has been approved by an administrator!",
-                        embed=user_embed,
-                        view=view
-                    )
-                except:
-                    # If DM fails, try to find a channel to send it in
-                    channel = interaction.channel
-                    await channel.send(
-                        content=f"<@{user_id}>, your loan request #{loan_id} has been approved!",
-                        embed=user_embed,
-                        view=view
-                    )
-                
-                # If manual mode is needed, provide instructions
-                if manual_needed and manual_integration:
-                    instructions_embed = manual_integration.format_receive_loan_instructions(
-                        loan,
-                        user_obj,
-                        interaction.guild
-                    )
+                    # Defer the response
+                    await defer_func()
                     
-                    try:
-                        await user_obj.send(
-                            content="Here's how to receive your loan:",
-                            embed=instructions_embed
-                        )
-                    except:
-                        await channel.send(
-                            content=f"<@{user_id}>, here's how to receive your loan:",
-                            embed=instructions_embed
-                        )
-                
-            except Exception as e:
-                print(f"Error notifying user of loan approval: {e}")
-                await interaction.followup.send(
-                    f"The loan was approved, but there was an error notifying the user: {str(e)}",
-                    ephemeral=True
-                )
-            
-        # Handle loan denial button
-        elif custom_id.startswith("deny_loan_"):
-            # Check if the user has approval permissions
-            guild_id = str(interaction.guild.id)
-            approval_roles = server_settings.get_approval_roles(guild_id)
-            
-            # Check if user has admin permissions or is in approval roles
-            has_permission = interaction.user.guild_permissions.administrator
-            
-            if not has_permission and approval_roles:
-                for role in interaction.user.roles:
-                    if str(role.id) in approval_roles:
-                        has_permission = True
-                        break
-            
-            if not has_permission:
-                return await interaction.response.send_message(
-                    "You don't have permission to deny loan requests. This action is for administrators and approved roles only.",
-                    ephemeral=True
-                )
-            
-            # Extract loan ID from custom_id
-            loan_id = custom_id.replace("deny_loan_", "")
-            
-            # Create a modal for denial reason
-            modal = discord.ui.Modal(title="Deny Loan Request")
-            
-            # Add text input for reason
-            reason_input = discord.ui.TextInput(
-                label="Reason for denial",
-                placeholder="Enter reason (optional)",
-                required=False,
-                max_length=200
-            )
-            modal.add_item(reason_input)
-            
-            # Define callback for modal submission
-            async def modal_callback(modal_interaction):
-                reason = reason_input.value if reason_input.value else None
-                
-                # Process the denial directly instead of calling the command
-                await modal_interaction.response.defer()
-                
-                # Get loan database
-                loan_database = self.bot.loan_database
-                
-                # Find the loan request
-                if "loan_requests" not in loan_database or not loan_database["loan_requests"]:
-                    return await modal_interaction.followup.send(
-                        f"Loan request #{loan_id} not found.",
-                        ephemeral=True
-                    )
-                
-                # Find loan request index
-                request_index = -1
-                guild_id = str(modal_interaction.guild.id)
-                
-                for i, request in enumerate(loan_database["loan_requests"]):
-                    if (request and request.get("id") == loan_id and 
-                        request.get("status") == "pending" and
-                        request.get("guild_id") == guild_id):
-                        request_index = i
-                        break
-                
-                if request_index == -1:
-                    return await modal_interaction.followup.send(
-                        f"Loan request #{loan_id} not found or already processed.",
-                        ephemeral=True
-                    )
-                
-                # Get the request and update status
-                loan_request = loan_database["loan_requests"][request_index]
-                loan_request["status"] = "denied"
-                loan_request["denied_by"] = str(modal_interaction.user.id)
-                loan_request["denied_date"] = datetime.datetime.now()
-                if reason:
-                    loan_request["denial_reason"] = reason
-                
-                # Get user information
-                user_id = loan_request["user_id"]
-                try:
-                    user = await self.bot.fetch_user(int(user_id))
-                    user_name = user.name
-                except:
-                    user_name = f"User {user_id}"
-                
-                # Create admin response embed
-                admin_embed = discord.Embed(
-                    title="❌ Loan Request Denied",
-                    description=f"You have denied the loan request #{loan_id} for {user_name}.",
-                    color=0xFF0000
-                )
-                
-                admin_embed.add_field(name="Loan ID", value=loan_id, inline=True)
-                admin_embed.add_field(name="Amount", value=f"{loan_request['amount']} {config.UNBELIEVABOAT['CURRENCY_NAME']}", inline=True)
-                admin_embed.add_field(name="Duration", value=f"{loan_request['days']} days", inline=True)
-                if reason:
-                    admin_embed.add_field(name="Reason", value=reason, inline=False)
-                
-                # Send admin confirmation
-                await modal_interaction.followup.send(embed=admin_embed)
-                
-                # Try to notify the user
-                try:
-                    # Create user notification embed
-                    user_embed = discord.Embed(
-                        title="❌ Loan Request Denied",
-                        description=f"Your loan request #{loan_id} has been denied by an administrator.",
-                        color=0xFF0000
-                    )
-                    
-                    user_embed.add_field(name="Amount", value=f"{loan_request['amount']} {config.UNBELIEVABOAT['CURRENCY_NAME']}", inline=True)
-                    user_embed.add_field(name="Duration", value=f"{loan_request['days']} days", inline=True)
-                    if reason:
-                        user_embed.add_field(name="Reason", value=reason, inline=False)
-                    
-                    # Try to DM the user
-                    try:
-                        user_obj = await self.bot.fetch_user(int(user_id))
-                        await user_obj.send(embed=user_embed)
-                    except:
-                        # If DM fails, try to find a channel to send it in
-                        channel = modal_interaction.channel
-                        await channel.send(
-                            content=f"<@{user_id}>, your loan request #{loan_id} has been denied.",
-                            embed=user_embed
-                        )
-                    
+                    # Process the loan approval
+                    await self._approve_loan(interaction, loan_id, is_button=True)
                 except Exception as e:
-                    print(f"Error notifying user of loan denial: {e}")
-                    await modal_interaction.followup.send(
-                        f"The loan was denied, but there was an error notifying the user: {str(e)}",
-                        ephemeral=True
-                    )
-                
-            modal.on_submit = modal_callback
+                    logger.error(f"Error in approve loan button: {e}")
+                    try:
+                        await send_message(
+                            f"Error approving loan: {str(e)}",
+                            ephemeral=True
+                        )
+                    except Exception as e2:
+                        logger.error(f"Error sending error message: {e2}")
             
-            # Send the modal
-            await interaction.response.send_modal(modal)
+            # Handle loan denial button
+            elif custom_id.startswith("deny_loan_"):
+                loan_id = custom_id.replace("deny_loan_", "")
+                
+                # Check permissions
+                if not interaction.user.guild_permissions.administrator:
+                    # Check if user has an approval role
+                    guild_id = str(interaction.guild.id)
+                    approval_roles = server_settings.get_approval_roles(guild_id)
+                    
+                    has_approval_role = False
+                    for role in interaction.user.roles:
+                        if str(role.id) in approval_roles:
+                            has_approval_role = True
+                            break
+                    
+                    if not has_approval_role:
+                        try:
+                            await send_message(
+                                "You don't have permission to deny loan requests. Only admins or users with an approval role can do this.",
+                                ephemeral=True
+                            )
+                        except Exception as e:
+                            logger.error(f"Error sending permission message: {e}")
+                        return
+                
+                # Create a modal for denial reason
+                modal = discord.ui.Modal(title=f"Deny Loan #{loan_id}")
+                
+                # Add reason input
+                reason_input = discord.ui.TextInput(
+                    label="Reason for denial",
+                    placeholder="Enter the reason for denying this loan request",
+                    required=True,
+                    style=discord.TextStyle.paragraph
+                )
+                
+                modal.add_item(reason_input)
+                
+                # Define callback for modal submission
+                async def modal_callback(modal_interaction):
+                    try:
+                        reason = reason_input.value
+                        await self._deny_loan(modal_interaction, loan_id, reason, is_button=True)
+                    except Exception as e:
+                        logger.error(f"Error in deny loan modal: {e}")
+                        try:
+                            if modal_interaction.response.is_done():
+                                await modal_interaction.followup.send(
+                                    f"Error denying loan: {str(e)}",
+                                    ephemeral=True
+                                )
+                            else:
+                                await modal_interaction.response.send_message(
+                                    f"Error denying loan: {str(e)}",
+                                    ephemeral=True
+                                )
+                        except Exception as e2:
+                            logger.error(f"Error sending error message: {e2}")
+                
+                modal.on_submit = modal_callback
+                
+                try:
+                    await interaction.response.send_modal(modal)
+                except Exception as e:
+                    logger.error(f"Error sending modal: {e}")
+                    try:
+                        if interaction.response.is_done():
+                            await interaction.followup.send(
+                                f"Error showing denial reason form: {str(e)}",
+                                ephemeral=True
+                            )
+                        else:
+                            await interaction.response.send_message(
+                                f"Error showing denial reason form: {str(e)}",
+                                ephemeral=True
+                            )
+                    except Exception as e2:
+                        logger.error(f"Error sending error message: {e2}")
+        except Exception as e:
+            logger.error(f"Error in loan button handler: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
 
 async def setup(bot):

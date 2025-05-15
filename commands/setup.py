@@ -22,7 +22,7 @@ class SetupCommand(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
     
-    @app_commands.command(name="set_captain_role", description="Set which role can request loans (Admin only)")
+    @app_commands.command(name="crew_captain_role", description="Set which role can request loans (Admin only)")
     @app_commands.describe(
         role="The role that can request loans (typically a Captain role)"
     )
@@ -71,79 +71,116 @@ class SetupCommand(commands.Cog):
                 ephemeral=True
             )
     
-    @app_commands.command(name="view_settings", description="View server settings for the loan bot")
+    @app_commands.command(name="view_settings", description="View current server settings for the loan bot")
     async def view_settings(self, interaction: discord.Interaction):
+        """Command to view server settings"""
         try:
-            guild_id = str(interaction.guild.id)
-            settings = server_settings.get_guild_settings(guild_id)
+            # Check if interaction is already responded to
+            if interaction.response.is_done():
+                logger.warning("Interaction already acknowledged in view_settings command, using followup instead")
+                send_message = interaction.followup.send
+            else:
+                send_message = interaction.response.send_message
             
+            # Get guild ID
+            guild_id = str(interaction.guild.id)
+            
+            # Create an embed with all server settings
             embed = discord.Embed(
-                title="📋 Server Settings",
-                description="Current configuration for the Loan Bot in this server",
+                title="⚙️ Loan Bot Settings",
+                description="Current server configuration",
                 color=0x0099FF
             )
             
-            # Captain Role
-            captain_role_id = settings.get("captain_role_id")
+            # Get captain role
+            captain_role_id = server_settings.get_captain_role(guild_id)
+            captain_role = None
             if captain_role_id:
                 captain_role = interaction.guild.get_role(int(captain_role_id))
-                captain_value = f"{captain_role.mention} (ID: {captain_role_id})" if captain_role else f"Unknown Role (ID: {captain_role_id})"
-            else:
-                captain_value = "Not set - All members can request loans"
-                
-            embed.add_field(
-                name="👑 Captain Role",
-                value=captain_value,
-                inline=False
-            )
             
-            # Maximum Loan Amount
-            max_loan = settings.get("max_loan_amount", 1000000)
+            captain_info = f"{captain_role.mention if captain_role else 'Not set'}"
+            embed.add_field(name="Captain Role", value=captain_info, inline=True)
+            
+            # Get max loan amount
+            max_loan = server_settings.get_max_loan_amount(guild_id)
             embed.add_field(
-                name="💰 Maximum Loan Amount",
+                name="Max Loan Amount",
                 value=f"{max_loan:,} {config.UNBELIEVABOAT['CURRENCY_NAME']}",
-                inline=False
-            )
-            
-            # Maximum Repayment Days
-            max_days = settings.get("max_repayment_days", 7)
-            embed.add_field(
-                name="📅 Maximum Repayment Period",
-                value=f"{max_days if max_days < 9999 else 'Unlimited'} days",
-                inline=False
-            )
-            
-            # UnbelievaBoat integration
-            embed.add_field(
-                name="💰 Currency",
-                value=f"{config.UNBELIEVABOAT['CURRENCY_NAME']}",
                 inline=True
             )
             
+            # Get max repayment days
+            max_days = server_settings.get_max_repayment_days(guild_id)
+            max_days_display = f"{max_days} days" if max_days < 9999 else "Unlimited"
+            embed.add_field(name="Max Repayment Period", value=max_days_display, inline=True)
+            
+            # Get admin channel
+            admin_channel_id = server_settings.get_admin_channel(guild_id)
+            admin_channel = None
+            if admin_channel_id:
+                admin_channel = interaction.guild.get_channel(int(admin_channel_id))
+            
+            admin_channel_info = f"{admin_channel.mention if admin_channel else 'Not set'}"
+            embed.add_field(name="Admin Channel", value=admin_channel_info, inline=True)
+            
+            # Get approval roles
+            approval_roles = server_settings.get_approval_roles(guild_id)
+            approval_roles_info = ""
+            
+            if approval_roles:
+                role_mentions = []
+                for role_id in approval_roles:
+                    role = interaction.guild.get_role(int(role_id))
+                    if role:
+                        role_mentions.append(role.mention)
+                
+                if role_mentions:
+                    approval_roles_info = ", ".join(role_mentions)
+                else:
+                    approval_roles_info = "No valid roles"
+            else:
+                approval_roles_info = "Not set (admin only)"
+            
+            embed.add_field(name="Approval Roles", value=approval_roles_info, inline=True)
+            
+            # Installment payment settings
+            installment_enabled = server_settings.is_installment_enabled(guild_id)
             embed.add_field(
-                name="🏦 UnbelievaBoat Integration",
-                value="✅ Enabled" if config.UNBELIEVABOAT["ENABLED"] else "❌ Disabled",
+                name="Installment Payments",
+                value="Enabled" if installment_enabled else "Disabled",
                 inline=True
             )
             
-            # Loan settings
-            embed.add_field(
-                name="💸 Manual Mode",
-                value="✅ Enabled" if config.UNBELIEVABOAT["MANUAL_MODE"] else "❌ Disabled",
-                inline=True
-            )
+            if installment_enabled:
+                min_percent = server_settings.get_min_installment_percent(guild_id)
+                embed.add_field(
+                    name="Min Installment %",
+                    value=f"{min_percent}%",
+                    inline=True
+                )
             
-            # Add a footer with instructions
-            embed.set_footer(text="Admins can change settings with /set_captain_role, /set_max_loan, and /set_max_days")
+            # Add footer with version
+            embed.set_footer(text=f"Discord Loan Bot v{config.VERSION}")
             
-            await interaction.response.send_message(embed=embed)
+            # Send the embed
+            await send_message(embed=embed)
+        except Exception as e:
+            logger.error(f"Error viewing settings: {e}")
             
-        except Exception as error:
-            logger.error(f"Error viewing settings: {str(error)}")
-            await interaction.response.send_message(
-                f"There was an error viewing server settings: {str(error)}",
-                ephemeral=True
-            )
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(
+                        "There was an error displaying server settings. Please try again.",
+                        ephemeral=True
+                    )
+                else:
+                    await interaction.response.send_message(
+                        "There was an error displaying server settings. Please try again.",
+                        ephemeral=True
+                    )
+            except Exception as e2:
+                logger.error(f"Error sending error message: {e2}")
+                pass
 
     @app_commands.command(name="set_max_loan", description="Set the maximum loan amount for this server (Admin only)")
     @app_commands.describe(
