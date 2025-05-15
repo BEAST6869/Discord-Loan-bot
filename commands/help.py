@@ -41,8 +41,6 @@ class HelpCommand(commands.Cog):
             loan_commands = [
                 ("/loan <amount> <days>", "Request a loan for your crew"),
                 ("/repay <loan_id>", "Repay a loan"),
-                ("/pay_installment <loan_id> <amount>", "Make an installment payment on a loan"),
-                ("/pending_payments", "View your pending installment payments"),
                 ("/myloans", "View your active loans"),
                 ("/credit", "Check your credit score")
             ]
@@ -60,9 +58,7 @@ class HelpCommand(commands.Cog):
                 admin_commands = [
                     ("/set_captain_role <role>", "Set which role can request loans"),
                     ("/set_max_loan <amount>", "Set the maximum loan amount"),
-                    ("/set_max_repayment_days <days>", "Set the maximum repayment period"),
-                    ("/set_installment_enabled <true/false>", "Enable/disable installment payments"),
-                    ("/set_min_installment_percent <percent>", "Set minimum installment percentage"),
+                    ("/set_max_days <days>", "Set the maximum repayment period"),
                     ("/setup_loans <channel>", "Configure loan request settings"),
                     ("/allloans", "View all active loans"),
                     ("/view_settings", "View server settings"),
@@ -96,7 +92,8 @@ class HelpCommand(commands.Cog):
                         "There was an error showing the help information. Please try again.",
                         ephemeral=True
                     )
-            except:
+            except Exception as e2:
+                logger.error(f"Error sending error message: {e2}")
                 pass
 
 

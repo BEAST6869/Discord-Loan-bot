@@ -22,7 +22,7 @@ class SetupCommand(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
     
-    @app_commands.command(name="crew_captain_role", description="Set which role can request loans (Admin only)")
+    @app_commands.command(name="set_captain_role", description="Set which role can request loans (Admin only)")
     @app_commands.describe(
         role="The role that can request loans (typically a Captain role)"
     )
@@ -75,12 +75,29 @@ class SetupCommand(commands.Cog):
     async def view_settings(self, interaction: discord.Interaction):
         """Command to view server settings"""
         try:
-            # Check if interaction is already responded to
-            if interaction.response.is_done():
-                logger.warning("Interaction already acknowledged in view_settings command, using followup instead")
+            # Check if the interaction response is done before proceeding
+            send_message = None
+            try:
+                if interaction.response.is_done():
+                    logger.warning("Interaction already acknowledged in view_settings command, using followup instead")
+                    send_message = interaction.followup.send
+                else:
+                    await interaction.response.defer()
+                    send_message = interaction.followup.send
+            except discord.errors.NotFound:
+                logger.warning("Interaction not found in view_settings command, using followup instead")
                 send_message = interaction.followup.send
-            else:
-                send_message = interaction.response.send_message
+            except discord.errors.HTTPException as e:
+                if e.code == 40060:  # Already acknowledged
+                    logger.warning("Interaction already acknowledged (40060), using followup")
+                    send_message = interaction.followup.send
+                else:
+                    raise
+            
+            # If we couldn't determine how to send, default to followup
+            if not send_message:
+                logger.warning("Using followup as fallback in view_settings")
+                send_message = interaction.followup.send
             
             # Get guild ID
             guild_id = str(interaction.guild.id)
@@ -143,22 +160,6 @@ class SetupCommand(commands.Cog):
             
             embed.add_field(name="Approval Roles", value=approval_roles_info, inline=True)
             
-            # Installment payment settings
-            installment_enabled = server_settings.is_installment_enabled(guild_id)
-            embed.add_field(
-                name="Installment Payments",
-                value="Enabled" if installment_enabled else "Disabled",
-                inline=True
-            )
-            
-            if installment_enabled:
-                min_percent = server_settings.get_min_installment_percent(guild_id)
-                embed.add_field(
-                    name="Min Installment %",
-                    value=f"{min_percent}%",
-                    inline=True
-                )
-            
             # Add footer with version
             embed.set_footer(text=f"Discord Loan Bot v{config.VERSION}")
             
@@ -166,6 +167,8 @@ class SetupCommand(commands.Cog):
             await send_message(embed=embed)
         except Exception as e:
             logger.error(f"Error viewing settings: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             
             try:
                 if interaction.response.is_done():

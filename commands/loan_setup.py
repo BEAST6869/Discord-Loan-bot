@@ -4,11 +4,14 @@ from discord.ext import commands
 import sys
 import os
 import config
+import logging
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import server_settings
+
+logger = logging.getLogger(__name__)
 
 class LoanSetupCommand(commands.Cog):
     def __init__(self, bot):
@@ -151,80 +154,114 @@ class LoanSetupCommand(commands.Cog):
     @app_commands.command(name="view_loan_settings", description="View current loan request settings (Admin only)")
     async def view_loan_settings(self, interaction: discord.Interaction):
         """View the current loan request settings"""
-        # Check if the user has admin permissions
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message(
-                "You don't have permission to use this command. Only administrators can view loan settings.",
-                ephemeral=True
+        try:
+            # Check if the user has admin permissions
+            if not interaction.user.guild_permissions.administrator:
+                try:
+                    if not interaction.response.is_done():
+                        return await interaction.response.send_message(
+                            "You don't have permission to use this command. Only administrators can view loan settings.",
+                            ephemeral=True
+                        )
+                    else:
+                        return await interaction.followup.send(
+                            "You don't have permission to use this command. Only administrators can view loan settings.",
+                            ephemeral=True
+                        )
+                except Exception as e:
+                    logger.error(f"Error sending permission message: {e}")
+                    return
+                
+            # Handle interaction state
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.defer(ephemeral=True)
+            except discord.errors.NotFound:
+                logger.warning("Interaction not found in view_loan_settings command")
+            except discord.errors.HTTPException as e:
+                if e.code != 40060:  # Not "already acknowledged"
+                    logger.error(f"Error deferring response: {e}")
+            
+            guild_id = str(interaction.guild.id)
+            
+            # Get the current settings
+            admin_channel_id = server_settings.get_admin_channel(guild_id)
+            approval_role_ids = server_settings.get_approval_roles(guild_id)
+            max_loan_amount = server_settings.get_max_loan_amount(guild_id)
+            captain_role_id = server_settings.get_captain_role(guild_id)
+            
+            # Create the embed
+            embed = discord.Embed(
+                title="Loan Request Settings",
+                description="Current settings for loan requests in this server",
+                color=0x0099FF
             )
-        
-        guild_id = str(interaction.guild.id)
-        
-        # Get the current settings
-        admin_channel_id = server_settings.get_admin_channel(guild_id)
-        approval_role_ids = server_settings.get_approval_roles(guild_id)
-        max_loan_amount = server_settings.get_max_loan_amount(guild_id)
-        captain_role_id = server_settings.get_captain_role(guild_id)
-        
-        # Create the embed
-        embed = discord.Embed(
-            title="Loan Request Settings",
-            description="Current settings for loan requests in this server",
-            color=0x0099FF
-        )
-        
-        # Add channel information
-        channel_text = "Not set"
-        if admin_channel_id:
-            channel = interaction.guild.get_channel(int(admin_channel_id))
-            channel_text = channel.mention if channel else f"Unknown channel (ID: {admin_channel_id})"
-        
-        embed.add_field(
-            name="Loan Request Channel",
-            value=channel_text,
-            inline=False
-        )
-        
-        # Add approval roles information
-        role_mentions = []
-        for role_id in approval_role_ids:
-            role = interaction.guild.get_role(int(role_id))
-            if role:
-                role_mentions.append(role.mention)
-        
-        role_text = ", ".join(role_mentions) if role_mentions else "No roles set (Admins only)"
-        
-        embed.add_field(
-            name="Approval Roles",
-            value=role_text,
-            inline=False
-        )
-        
-        # Add max loan amount
-        embed.add_field(
-            name="Maximum Loan Amount",
-            value=f"{max_loan_amount:,}",
-            inline=True
-        )
-        
-        # Add captain role
-        captain_text = "Not set (everyone can request loans)"
-        if captain_role_id:
-            captain_role = interaction.guild.get_role(int(captain_role_id))
-            captain_text = captain_role.mention if captain_role else f"Unknown role (ID: {captain_role_id})"
-        
-        embed.add_field(
-            name="Captain Role",
-            value=captain_text,
-            inline=True
-        )
-        
-        # Send the embed
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+            
+            # Add channel information
+            channel_text = "Not set"
+            if admin_channel_id:
+                channel = interaction.guild.get_channel(int(admin_channel_id))
+                channel_text = channel.mention if channel else f"Unknown channel (ID: {admin_channel_id})"
+            
+            embed.add_field(
+                name="Loan Request Channel",
+                value=channel_text,
+                inline=False
+            )
+            
+            # Add approval roles information
+            role_mentions = []
+            for role_id in approval_role_ids:
+                role = interaction.guild.get_role(int(role_id))
+                if role:
+                    role_mentions.append(role.mention)
+            
+            role_text = ", ".join(role_mentions) if role_mentions else "No roles set (Admins only)"
+            
+            embed.add_field(
+                name="Approval Roles",
+                value=role_text,
+                inline=False
+            )
+            
+            # Add max loan amount
+            embed.add_field(
+                name="Maximum Loan Amount",
+                value=f"{max_loan_amount:,}",
+                inline=True
+            )
+            
+            # Add captain role
+            captain_text = "Not set (everyone can request loans)"
+            if captain_role_id:
+                captain_role = interaction.guild.get_role(int(captain_role_id))
+                captain_text = captain_role.mention if captain_role else f"Unknown role (ID: {captain_role_id})"
+            
+            embed.add_field(
+                name="Captain Role",
+                value=captain_text,
+                inline=True
+            )
+            
+            # Send the embed
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error viewing loan settings: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            
+            try:
+                await interaction.followup.send(
+                    "There was an error retrieving loan settings. Please try again.",
+                    ephemeral=True
+                )
+            except Exception as e2:
+                logger.error(f"Error sending error message: {e2}")
+                pass
 
-    @app_commands.command(name="set_captain_role", description="Set which role is allowed to request loans")
+    @app_commands.command(name="loan_captain_role", description="Set which role is allowed to request loans")
     @app_commands.describe(
-        role="The role that can request loans (captains)"
+        role="The role that can request loans (typically a Captain role)"
     )
     async def set_captain_role(self, interaction: discord.Interaction, role: discord.Role):
         # Check if the user has admin permissions
@@ -303,55 +340,6 @@ class LoanSetupCommand(commands.Cog):
         
         await interaction.response.send_message(
             message,
-            ephemeral=True
-        )
-    
-    @app_commands.command(name="set_installment_enabled", description="Enable or disable installment payments for loans")
-    @app_commands.describe(
-        enabled="Whether installment payments are enabled (default: True)"
-    )
-    async def set_installment_enabled(self, interaction: discord.Interaction, enabled: bool = True):
-        # Check if the user has admin permissions
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message(
-                "You don't have permission to use this command. This command is for administrators only.",
-                ephemeral=True
-            )
-            
-        # Save the installment enabled setting
-        guild_id = str(interaction.guild.id)
-        server_settings.set_installment_enabled(guild_id, enabled)
-        
-        await interaction.response.send_message(
-            f"✅ Installment payments for loans have been {'enabled' if enabled else 'disabled'}.",
-            ephemeral=True
-        )
-    
-    @app_commands.command(name="set_min_installment_percent", description="Set the minimum installment percentage for loans")
-    @app_commands.describe(
-        percent="Minimum percentage of loan that must be paid in each installment (1-100)"
-    )
-    async def set_min_installment_percent(self, interaction: discord.Interaction, percent: int):
-        # Check if the user has admin permissions
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message(
-                "You don't have permission to use this command. This command is for administrators only.",
-                ephemeral=True
-            )
-            
-        # Validate percent
-        if percent < 1 or percent > 100:
-            return await interaction.response.send_message(
-                "Minimum installment percentage must be between 1 and 100.",
-                ephemeral=True
-            )
-            
-        # Save the min installment percentage
-        guild_id = str(interaction.guild.id)
-        server_settings.set_min_installment_percent(guild_id, percent)
-        
-        await interaction.response.send_message(
-            f"✅ The minimum installment percentage has been set to {percent}% of the total loan amount.",
             ephemeral=True
         )
 

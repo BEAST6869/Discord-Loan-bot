@@ -217,15 +217,15 @@ class RepayCommand(commands.Cog):
                     
                     # Update the user's credit score
                     credit_change = 10 if on_time else -5  # +10 for on-time, -5 for late
-                    
+            
                     if "credit_scores" not in loan_database:
                         loan_database["credit_scores"] = {}
-                    
+            
                     if user_id not in loan_database["credit_scores"]:
                         loan_database["credit_scores"][user_id] = 100  # Default score
-                        
+            
                     loan_database["credit_scores"][user_id] += credit_change
-                    
+            
                     # Create a nice embed for the repayment confirmation
                     embed = discord.Embed(
                         title="💰 Loan Repaid Successfully",
@@ -307,7 +307,7 @@ class RepayCommand(commands.Cog):
                     value=f"{repayment_amount:,} {config.UNBELIEVABOAT['CURRENCY_NAME']}",
                     inline=True
                 )
-                
+            
                 if late_fee > 0:
                     embed.add_field(
                         name="Late Fee",
@@ -367,10 +367,18 @@ class RepayCommand(commands.Cog):
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
         try:
-            if not interaction.data or not interaction.data.get("custom_id"):
+            # Skip if not a component interaction
+            if not interaction.type == discord.InteractionType.component:
                 return
-            
+                
+            # Ensure data exists with a custom_id
+            if not hasattr(interaction, 'data') or not interaction.data:
+                return
+                
+            # Safely get the custom_id
             custom_id = interaction.data.get("custom_id", "")
+            if not custom_id:
+                return
             
             # Check if this is a repay button
             if custom_id.startswith("repay_"):

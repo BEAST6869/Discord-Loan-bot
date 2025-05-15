@@ -3,73 +3,63 @@ Script to completely remove all Discord commands
 """
 
 import discord
-from discord import app_commands
 from discord.ext import commands
 import asyncio
-import config
+import os
+import sys
 import logging
+import config
 
-
-# Set up logging
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler()
     ]
 )
 
-logger = logging.getLogger("cleanup")
+logger = logging.getLogger('discord')
 
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix='!', intents=intents)
 
-async def delete_all_commands():
-    """Delete all application commands, both global and guild-specific"""
+@bot.event
+async def on_ready():
+    logger.info(f'Logged in as {bot.user.name} ({bot.user.id})')
+    logger.info('Bot is now online and ready to clean up commands!')
+    
     try:
-        logger.info("Started deleting all application commands...")
+        # Clear global commands
+        await bot.tree.sync()
+        logger.info("Cleared global commands")
         
-        # Create a simple client
-        intents = discord.Intents.default()
-        client = discord.Client(intents=intents)
-        
-        # Just log in without connecting to gateway
-        await client.login(config.DISCORD_TOKEN)
-        
-        # Set up the application_id
-        application_id = config.CLIENT_ID
-        
-        # Delete global commands
-        logger.info("Deleting global application commands...")
-        await client.http.bulk_upsert_global_commands(application_id, [])
-        logger.info("Successfully deleted all global application commands.")
-        
-        # Try to delete commands from known guild
-        guild_id = "1294261720440635434"  # From previous config
-        logger.info(f"Deleting guild commands for guild ID: {guild_id}...")
-        try:
-            await client.http.bulk_upsert_guild_commands(application_id, guild_id, [])
-            logger.info(f"Successfully deleted commands for guild {guild_id}.")
-        except Exception as e:
-            logger.error(f"Error deleting commands for guild {guild_id}: {e}")
+        # Clear commands for each guild
+        for guild in bot.guilds:
+            logger.info(f"Clearing commands for guild: {guild.name} (ID: {guild.id})")
             
-        # Also try any other guilds from logs
-        other_guilds = ["1351637782161784895"]  # From bot log output
-        for guild_id in other_guilds:
-            try:
-                logger.info(f"Deleting guild commands for guild ID: {guild_id}...")
-                await client.http.bulk_upsert_guild_commands(application_id, guild_id, [])
-                logger.info(f"Successfully deleted commands for guild {guild_id}.")
-            except Exception as e:
-                logger.error(f"Error deleting commands for guild {guild_id}: {e}")
-        
-        logger.info("Command cleanup completed. Now run deploy_commands.py to register only the global commands.")
-        
-        # Close the HTTP session
-        await client.http.close()
-        
-    except Exception as error:
-        logger.error(f"Error deleting commands: {error}")
-
+            # Get existing commands
+            existing_commands = await bot.tree.fetch_commands(guild=guild)
+            logger.info(f"Found {len(existing_commands)} commands in {guild.name}")
+            
+            # Delete all commands in this guild
+            bot.tree.clear_commands(guild=guild)
+            await bot.tree.sync(guild=guild)
+            
+            logger.info(f"Successfully cleared commands for {guild.name}")
+            
+        logger.info("All commands have been removed successfully!")
+    except Exception as e:
+        logger.error(f"Error clearing commands: {e}")
+    finally:
+        # Exit the bot
+        await bot.close()
 
 if __name__ == "__main__":
-    # Execute the function
-    asyncio.run(delete_all_commands()) 
+    token = config.DISCORD_TOKEN
+    if not token:
+        logger.error("No token found in config.py")
+        sys.exit(1)
+        
+    bot.run(token) 

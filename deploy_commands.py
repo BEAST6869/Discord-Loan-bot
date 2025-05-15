@@ -6,16 +6,14 @@ Run this script when you add new commands or modify existing ones.
 """
 
 import discord
-from discord import app_commands
 from discord.ext import commands
+import asyncio
+import sys
+import logging
 import config
 import os
-import sys
-import asyncio
-import logging
 
-
-# Set up logging
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -24,38 +22,58 @@ logging.basicConfig(
     ]
 )
 
-logger = logging.getLogger("deploy")
+logger = logging.getLogger('discord')
 
+# List all command cogs to load
+COMMAND_EXTENSIONS = [
+    "commands.help",
+    "commands.loan",
+    "commands.repay",
+    "commands.setup",
+    "commands.loan_setup"
+]
 
-async def deploy_commands():
-    """Deploy slash commands to Discord"""
-    # Initialize bot with proper intents
-    intents = discord.Intents.default()
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+@bot.event
+async def on_ready():
+    logger.info(f'Logged in as {bot.user.name} ({bot.user.id})')
+    logger.info(f'Bot is in {len(bot.guilds)} servers')
     
-    # Create bot instance
-    bot = commands.Bot(command_prefix="/", intents=intents)
-    
-    # Load all commands
-    for filename in os.listdir("commands"):
-        if filename.endswith(".py"):
-            command_name = filename[:-3]  # Remove .py extension
+    try:
+        # Load all command extensions
+        for extension in COMMAND_EXTENSIONS:
             try:
-                await bot.load_extension(f"commands.{command_name}")
-                logger.info(f"Loaded command: {command_name}")
+                await bot.load_extension(extension)
+                logger.info(f"Loaded extension: {extension}")
             except Exception as e:
-                logger.error(f"Error loading command {command_name}: {e}")
-                return
-    
-    # Login to Discord
-    await bot.login(config.DISCORD_TOKEN)
-    
-    # Sync commands globally only
-    logger.info("Syncing commands globally only...")
-    await bot.tree.sync()
-    logger.info("Commands synced successfully to all guilds!")
-    
-    logger.info("Command deployment completed. You can now start the bot.")
-
+                logger.error(f"Failed to load extension {extension}: {e}")
+        
+        # Sync commands globally
+        await bot.tree.sync()
+        logger.info("Synced commands globally")
+        
+        # Sync commands to each guild for guild-specific commands
+        for guild in bot.guilds:
+            try:
+                await bot.tree.sync(guild=guild)
+                logger.info(f"Synced commands to guild: {guild.name} (ID: {guild.id})")
+            except Exception as e:
+                logger.error(f"Error syncing commands to guild {guild.name}: {e}")
+        
+        logger.info("All commands have been deployed successfully!")
+    except Exception as e:
+        logger.error(f"Error deploying commands: {e}")
+    finally:
+        # Exit the bot
+        await bot.close()
 
 if __name__ == "__main__":
-    asyncio.run(deploy_commands()) 
+    token = config.DISCORD_TOKEN
+    if not token:
+        logger.error("No token found in config.py")
+        sys.exit(1)
+        
+    bot.run(token) 
