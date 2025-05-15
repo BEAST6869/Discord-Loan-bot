@@ -197,8 +197,6 @@ class LoanCommand(commands.Cog):
         
         embed.add_field(name="Loan ID", value=f"{loan_id}", inline=True)
         embed.add_field(name="Loan Amount", value=f"{amount} {config.UNBELIEVABOAT['CURRENCY_NAME']}", inline=True)
-        embed.add_field(name="Interest Rate", value=f"{(interest_rate * 100):.0f}%", inline=True)
-        embed.add_field(name="Interest Amount", value=f"{interest} {config.UNBELIEVABOAT['CURRENCY_NAME']}", inline=True)
         embed.add_field(name="Total Repayment", value=f"{total_repayment} {config.UNBELIEVABOAT['CURRENCY_NAME']}", inline=True)
         
         # Format the due date as a Discord timestamp
@@ -332,9 +330,9 @@ class LoanCommand(commands.Cog):
             # Calculate due date
             due_date = datetime.datetime.now() + datetime.timedelta(days=days)
             
-            # Calculate 10% interest
-            interest = round(amount * 0.10)
-            total_repayment = amount + interest
+            # No interest calculation
+            interest = 0
+            total_repayment = amount
             
             # Store the loan request in the database
             loan_request = {
@@ -386,12 +384,6 @@ class LoanCommand(commands.Cog):
                     embed.add_field(
                         name="Amount Requested",
                         value=f"{amount:,} {config.UNBELIEVABOAT['CURRENCY_NAME']}",
-                        inline=True
-                    )
-                    
-                    embed.add_field(
-                        name="Interest (10%)",
-                        value=f"{interest:,} {config.UNBELIEVABOAT['CURRENCY_NAME']}",
                         inline=True
                     )
                     
@@ -473,12 +465,6 @@ class LoanCommand(commands.Cog):
                     user_embed.add_field(
                         name="Amount",
                         value=f"{amount:,} {config.UNBELIEVABOAT['CURRENCY_NAME']}",
-                        inline=True
-                    )
-                    
-                    user_embed.add_field(
-                        name="Interest (10%)",
-                        value=f"{interest:,} {config.UNBELIEVABOAT['CURRENCY_NAME']}",
                         inline=True
                     )
                     

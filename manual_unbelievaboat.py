@@ -85,7 +85,7 @@ def format_repay_loan_instructions(loan):
     
     embed.add_field(
         name="Payment Breakdown",
-        value=f"Loan Amount: {loan['amount']} {config.UNBELIEVABOAT['CURRENCY_NAME']}\nInterest: {loan['interest']} {config.UNBELIEVABOAT['CURRENCY_NAME']}\nTotal Due: {loan['total_repayment']} {config.UNBELIEVABOAT['CURRENCY_NAME']}",
+        value=f"Loan Amount: {loan['amount']} {config.UNBELIEVABOAT['CURRENCY_NAME']}\nTotal Due: {loan['total_repayment']} {config.UNBELIEVABOAT['CURRENCY_NAME']}",
         inline=False
     )
     
